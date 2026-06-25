@@ -1,0 +1,9 @@
+---
+- name: Restart mas
+  systemd:
+    name: mas
+    state: restarted
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true

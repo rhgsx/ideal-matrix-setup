@@ -1,0 +1,60 @@
+# Managed by Ansible — Element Web nginx vhost
+server {
+    listen {{ element_nginx_port }};
+    server_name {{ element_domain }};
+
+    root {{ element_install_dir }};
+    index index.html;
+
+    # Запретить прямой доступ не через HAProxy
+    real_ip_header X-Forwarded-For;
+    set_real_ip_from {{ haproxy_ip }};
+
+    # Security headers (HAProxy добавит свои, но дублируем для надёжности)
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Кэширование статики
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # config.json не кэшируем
+    location = /config.json {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        expires 0;
+    }
+
+    # SPA — все пути на index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        expires 0;
+    }
+
+    # Element Call (встроенный)
+    location /call {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Запретить доступ к скрытым файлам
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    access_log /var/log/nginx/element_access.log combined;
+    error_log  /var/log/nginx/element_error.log warn;
+
+    client_max_body_size 100m;
+    keepalive_timeout 65;
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_vary on;
+    gzip_min_length 1024;
+}

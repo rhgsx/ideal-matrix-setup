@@ -1,0 +1,132 @@
+# Managed by Ansible — do not edit manually
+# Базовый homeserver.yaml для хоста с workers.
+# Является копией конфига главного сервера без listener-секции —
+# каждый worker переопределяет её через свой yaml.
+
+server_name: "{{ matrix_server_name }}"
+public_baseurl: "https://{{ matrix_domain }}"
+
+pid_file: /var/run/matrix-synapse/homeserver.pid
+
+# Этот файл не запускает отдельный listener — workers делают это сами.
+# Нужен для передачи общих секретов и настроек в worker-процесс.
+listeners: []
+
+#==============================================================================
+# DATABASE
+#==============================================================================
+database:
+  name: psycopg2
+  txn_limit: 10000
+  args:
+    user: "{{ synapse_db_user }}"
+    password: "{{ vault_synapse_db_password }}"
+    database: "{{ synapse_db_name }}"
+    host: "{{ postgres_ip }}"
+    port: {{ postgres_port }}
+    cp_min: 5
+    cp_max: 10
+    keepalives: 1
+    keepalives_idle: 10
+    keepalives_interval: 10
+    keepalives_count: 3
+
+#==============================================================================
+# REDIS
+#==============================================================================
+redis:
+  enabled: true
+  host: "{{ redis_ip }}"
+  port: {{ redis_port }}
+  password: "{{ vault_redis_password }}"
+  dbid: 0
+
+#==============================================================================
+# REPLICATION — указываем адрес главного процесса
+#==============================================================================
+worker_replication_host: "{{ synapse_ip }}"
+worker_replication_http_port: {{ synapse_replication_port }}
+
+#==============================================================================
+# SECURITY
+#==============================================================================
+registration_shared_secret: "{{ vault_synapse_registration_secret }}"
+macaroon_secret_key:         "{{ vault_synapse_macaroon_secret }}"
+form_secret:                 "{{ vault_synapse_form_secret }}"
+
+signing_key_path: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
+
+#==============================================================================
+# STREAM WRITERS (нужны на worker-хосте для координации)
+#==============================================================================
+stream_writers:
+  events:
+    - event_persister1
+    - event_persister2
+  typing:
+    - stream_writer_typing
+  to_device:
+    - stream_writer_to_device
+  account_data:
+    - stream_writer_account_data
+  receipts:
+    - stream_writer_receipts
+  presence:
+    - stream_writer_presence
+
+run_background_tasks_on: "background_tasks"
+update_user_directory_from_worker: "user_dir"
+notify_appservices_from_worker: "pusher"
+
+send_federation: false
+federation_sender_instances:
+  - federation_sender1
+  - federation_sender2
+
+#==============================================================================
+# MEDIA
+#==============================================================================
+media_store_path: "{{ synapse_data_dir }}/media_store"
+max_upload_size: "{{ synapse_max_upload_size }}"
+
+#==============================================================================
+# TURN
+#==============================================================================
+turn_uris:
+  - "turns:{{ coturn_external_ip }}:{{ coturn_tls_port }}?transport=udp"
+  - "turns:{{ coturn_external_ip }}:{{ coturn_tls_port }}?transport=tcp"
+  - "turn:{{ coturn_external_ip }}:{{ coturn_port }}?transport=udp"
+  - "turn:{{ coturn_external_ip }}:{{ coturn_port }}?transport=tcp"
+turn_shared_secret: "{{ vault_coturn_static_auth_secret }}"
+turn_user_lifetime: 86400000
+turn_allow_guests: false
+
+#==============================================================================
+# CACHES
+#==============================================================================
+event_cache_size: "{{ synapse_event_cache_size }}"
+caches:
+  global_factor: {{ synapse_caches_global_factor }}
+
+#==============================================================================
+# MAS (OIDC)
+#==============================================================================
+experimental_features:
+  msc3861:
+    enabled: true
+    issuer: "https://{{ mas_domain }}/"
+    client_id: "0000000000000000000SYNAPSE"
+    client_auth_method: client_secret_basic
+    client_secret: "{{ vault_mas_client_secret }}"
+    admin_token: "{{ vault_mas_client_secret }}"
+    account_management_url: "https://{{ mas_domain }}/account"
+
+password_config:
+  enabled: false
+
+#==============================================================================
+# LOGGING
+#==============================================================================
+log_config: "{{ workers_config_dir }}/%(worker_name)s.log.config"
+
+enable_metrics: true

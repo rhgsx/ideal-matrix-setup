@@ -1,0 +1,6 @@
+---
+- name: LiveKit SFU + JWT service
+  hosts: livekit
+  become: true
+  roles:
+    - livekit

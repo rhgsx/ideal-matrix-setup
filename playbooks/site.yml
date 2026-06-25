@@ -1,0 +1,28 @@
+---
+# Главный плейбук — разворачивает весь стек в правильном порядке
+- name: "01 · Common baseline"
+  import_playbook: 01_common.yml
+
+- name: "02 · PostgreSQL"
+  import_playbook: 02_postgres.yml
+
+- name: "03 · Redis"
+  import_playbook: 03_redis.yml
+
+- name: "04 · Coturn"
+  import_playbook: 04_coturn.yml
+
+- name: "05 · LiveKit SFU + JWT"
+  import_playbook: 05_livekit.yml
+
+- name: "06 · Synapse main"
+  import_playbook: 06_synapse.yml
+
+- name: "07 · Synapse Workers + MAS"
+  import_playbook: 07_workers.yml
+
+- name: "08 · Element Web"
+  import_playbook: 08_element_web.yml
+
+- name: "09 · HAProxy"
+  import_playbook: 09_haproxy.yml

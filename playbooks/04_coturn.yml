@@ -1,0 +1,6 @@
+---
+- name: Coturn TURN/STUN server
+  hosts: coturn
+  become: true
+  roles:
+    - coturn

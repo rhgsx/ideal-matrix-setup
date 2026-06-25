@@ -1,0 +1,10 @@
+---
+synapse_version:     "1.121.0"
+synapse_config_dir:  "/etc/matrix-synapse"
+synapse_data_dir:    "/var/lib/matrix-synapse"
+workers_config_dir:  "/etc/matrix-synapse/workers"
+workers_log_dir:     "/var/log/matrix-synapse"
+synapse_event_cache_size:        "50K"
+synapse_caches_global_factor:    2.0
+synapse_max_upload_size:         "100M"
+synapse_enable_registration:     false

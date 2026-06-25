@@ -1,0 +1,71 @@
+# Managed by Ansible — LiveKit SFU configuration
+
+port: {{ livekit_port }}
+bind_addresses:
+  - "{{ livekit_ip }}"
+  - "127.0.0.1"
+
+log_level: info
+
+# API ключи (должны совпадать с lk-jwt-service)
+keys:
+  {{ vault_livekit_api_key }}: {{ vault_livekit_api_secret }}
+
+#==============================================================================
+# RTC — WebRTC media
+#==============================================================================
+rtc:
+  tcp_port: {{ livekit_rtc_port_tcp }}
+  udp_port: {{ livekit_rtc_port_udp }}
+  use_external_ip: {{ livekit_rtc_use_external_ip | lower }}
+  enable_loopback_candidate: false
+  # ICE — сообщаем клиентам внешний IP за NAT
+  nat_1_to_1_ips:
+    - "{{ external_ip }}"
+  # ICE транспорт: UDP предпочтительнее, TCP как fallback
+  ice_transport_policy: all
+  # UDP мультиплексирование
+  enable_ice_lite: false
+
+#==============================================================================
+# TURN fallback — когда клиенты не могут достучаться напрямую
+#==============================================================================
+turn:
+  enabled: true
+  tls_port: {{ coturn_tls_port }}
+  udp_port: {{ coturn_port }}
+  # Используем тот же Coturn что и для Synapse
+  external_tls: true
+  credential_timeout: 86400
+
+#==============================================================================
+# REDIS — для горизонтального масштабирования (если будет несколько нод)
+#==============================================================================
+redis:
+  address: "{{ redis_ip }}:{{ redis_port }}"
+  password: "{{ vault_redis_password }}"
+  db: 1   # Отдельный DB index от Synapse
+
+#==============================================================================
+# ПРОИЗВОДИТЕЛЬНОСТЬ
+#==============================================================================
+# Лимиты треков
+limit_config:
+  num_tracks: {{ livekit_limit_num_tracks }}
+  bytes_per_sec: {{ livekit_limit_bytes_per_sec }}
+
+# Вкл. Opus RED (избыточность) для лучшего качества аудио
+room:
+  auto_create: true
+  enable_remote_unmute: true
+  empty_timeout: 300
+  departure_timeout: 20
+  max_participants: 500
+
+#==============================================================================
+# LOGGING
+#==============================================================================
+logging:
+  json: false
+  level: info
+  pion_level: error

@@ -1,0 +1,69 @@
+{
+    "default_server_config": {
+        "m.homeserver": {
+            "base_url": "https://{{ matrix_domain }}",
+            "server_name": "{{ matrix_server_name }}"
+        },
+        "m.identity_server": {
+            "base_url": "https://vector.im"
+        }
+    },
+    "brand": "Element",
+    "integrations_ui_url": "https://scalar.vector.im/",
+    "integrations_rest_url": "https://scalar.vector.im/api",
+    "integrations_widgets_urls": [
+        "https://scalar.vector.im/_matrix/integrations/v1",
+        "https://scalar.vector.im/api",
+        "https://scalar-staging.vector.im/_matrix/integrations/v1",
+        "https://scalar-staging.vector.im/api",
+        "https://scalar-staging.riot.im/_matrix/integrations/v1",
+        "https://scalar-staging.riot.im/api"
+    ],
+    "hosting_signup_link": "https://element.io/matrix-services?utm_source=element-web&utm_medium=web",
+    "bug_report_endpoint_url": "https://element.io/bugreports/submit",
+    "uisi_autorageshake_app": "element-auto-uisi",
+    "showLabsSettings": false,
+    "piwik": false,
+    "roomDirectory": {
+        "servers": [
+            "{{ matrix_server_name }}",
+            "matrix.org"
+        ]
+    },
+    "enable_presence_by_hs_url": {
+        "https://{{ matrix_domain }}": false,
+        "https://matrix.org": false
+    },
+    "disable_guests": true,
+    "disable_login_language_selector": false,
+    "disable_3pid_login": false,
+    "default_theme": "light",
+    "map_style_url": "https://api.maptiler.com/maps/streets/style.json?key=fU3vlMsMn4Jb6dnEIFsx",
+    "features": {
+        "feature_wysiwyg_composer": true,
+        "feature_mjolnir": true
+    },
+    "setting_defaults": {
+        "breadcrumbs": true,
+        "sendReadReceipts": true,
+        "showTypingNotifications": true,
+        "urlPreviewsEnabled": true,
+        "autoplayGifs": false,
+        "autoplayVideo": false,
+        "enableSyntaxHighlightLanguageDetection": true,
+        "expandRoomSummaryPanel": true,
+        "showChatEffects": true,
+        "notificationsEnabled": true
+    },
+    "element_call": {
+        "url": "https://{{ element_domain }}/call",
+        "participant_limit": 500,
+        "brand": "Element Call"
+    },
+    "jitsi": {
+        "preferred_domain": "meet.jit.si"
+    },
+    "voip": {
+        "obey_asserted_identity": false
+    }
+}

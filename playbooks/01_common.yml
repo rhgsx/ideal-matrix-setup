@@ -1,0 +1,6 @@
+---
+- name: Common baseline for all Matrix hosts
+  hosts: matrix
+  become: true
+  roles:
+    - common

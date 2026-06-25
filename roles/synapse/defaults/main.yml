@@ -1,0 +1,18 @@
+---
+synapse_version:                       "1.121.0"
+synapse_config_dir:                    "/etc/matrix-synapse"
+synapse_data_dir:                      "/var/lib/matrix-synapse"
+synapse_log_dir:                       "/var/log/matrix-synapse"
+synapse_event_cache_size:              "50K"
+synapse_caches_global_factor:          2.0
+synapse_presence_enabled:              true
+synapse_allow_public_rooms_without_auth: false
+synapse_allow_public_rooms_over_federation: true
+synapse_max_upload_size:               "100M"
+synapse_max_image_pixels:              "32M"
+synapse_enable_registration:           false
+synapse_allow_guest_access:            false
+synapse_federation_domain_whitelist:   []
+synapse_rc_message_per_second:         0.2
+synapse_rc_message_burst:              10
+synapse_enable_metrics:                true

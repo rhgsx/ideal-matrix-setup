@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: Restart all workers
+  systemd:
+    name: "matrix-synapse-workers.target"
+    state: restarted

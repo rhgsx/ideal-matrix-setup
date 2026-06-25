@@ -1,0 +1,84 @@
+---
+- name: Install nginx
+  apt:
+    name:
+      - nginx
+      - nginx-extras
+    state: present
+    update_cache: true
+
+- name: Create Element Web install directory
+  file:
+    path: "{{ element_install_dir }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+
+- name: Download Element Web
+  get_url:
+    url: "https://github.com/element-hq/element-web/releases/download/v{{ element_version }}/element-v{{ element_version }}.tar.gz"
+    dest: "/tmp/element-{{ element_version }}.tar.gz"
+    mode: "0644"
+
+- name: Extract Element Web
+  unarchive:
+    src: "/tmp/element-{{ element_version }}.tar.gz"
+    dest: "{{ element_install_dir }}"
+    remote_src: true
+    extra_opts: ["--strip-components=1"]
+    creates: "{{ element_install_dir }}/index.html"
+
+- name: Set correct ownership for Element Web files
+  file:
+    path: "{{ element_install_dir }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    recurse: true
+
+- name: Deploy Element Web config.json
+  template:
+    src: config.json.j2
+    dest: "{{ element_install_dir }}/config.json"
+    owner: www-data
+    group: www-data
+    mode: "0644"
+    backup: true
+
+- name: Remove default nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Deploy nginx vhost for Element
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/element
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Reload nginx
+
+- name: Enable Element nginx site
+  file:
+    src: /etc/nginx/sites-available/element
+    dest: /etc/nginx/sites-enabled/element
+    state: link
+  notify: Reload nginx
+
+- name: Enable and start nginx
+  systemd:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Allow nginx HTTP from HAProxy
+  community.general.ufw:
+    rule: allow
+    src: "{{ haproxy_ip }}"
+    port: "{{ element_nginx_port }}"
+    proto: tcp
+    comment: "Element Web nginx from HAProxy"

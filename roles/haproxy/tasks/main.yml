@@ -1,0 +1,92 @@
+---
+- name: Add HAProxy repo (latest stable)
+  apt_repository:
+    repo: "ppa:vbernat/haproxy-2.9"
+    state: present
+  when: ansible_distribution == "Ubuntu"
+
+- name: Install HAProxy
+  apt:
+    name:
+      - "haproxy=2.9.*"
+      - socat
+      - hatop
+    state: present
+    update_cache: true
+
+- name: Create TLS certificate directory
+  file:
+    path: "{{ tls_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Check if combined TLS cert exists
+  stat:
+    path: "{{ tls_combined }}"
+  register: tls_cert_stat
+
+- name: Warn if TLS certificate is missing
+  debug:
+    msg: >
+      ВНИМАНИЕ: {{ tls_combined }} не найден.
+      Разместите TLS-сертификат до запуска HAProxy.
+      Формат: fullchain.pem + privkey.pem объединённые в один файл.
+      Команда: cat fullchain.pem privkey.pem > {{ tls_combined }}
+  when: not tls_cert_stat.stat.exists
+
+- name: Create HAProxy runtime directory
+  file:
+    path: /var/run/haproxy
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: "0755"
+
+- name: Deploy haproxy.cfg
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+    validate: "haproxy -c -f %s"
+  notify: Reload haproxy
+
+- name: Enable and start HAProxy
+  systemd:
+    name: haproxy
+    enabled: true
+    state: started
+
+# UFW — HAProxy — публичные порты
+- name: Allow HTTP
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    comment: "HTTP -> HTTPS redirect"
+
+- name: Allow HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    comment: "HTTPS Matrix + Element"
+
+- name: Allow Matrix Federation
+  community.general.ufw:
+    rule: allow
+    port: "8448"
+    proto: tcp
+    comment: "Matrix Federation"
+
+- name: Allow HAProxy stats (только с internal сети)
+  community.general.ufw:
+    rule: allow
+    src: "{{ internal_network }}"
+    port: "{{ haproxy_stats_port }}"
+    proto: tcp
+    comment: "HAProxy stats"

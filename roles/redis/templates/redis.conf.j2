@@ -1,0 +1,94 @@
+# Managed by Ansible — do not edit manually
+
+#------------------------------------------------------------------------------
+# NETWORK
+#------------------------------------------------------------------------------
+bind {{ redis_bind_ip }} 127.0.0.1
+port {{ redis_port }}
+protected-mode yes
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
+
+#------------------------------------------------------------------------------
+# GENERAL
+#------------------------------------------------------------------------------
+daemonize no
+supervised systemd
+pidfile /var/run/redis/redis-server.pid
+loglevel notice
+logfile {{ redis_log_dir }}/redis-server.log
+databases 16
+
+#------------------------------------------------------------------------------
+# AUTHENTICATION
+#------------------------------------------------------------------------------
+requirepass {{ vault_redis_password }}
+
+#------------------------------------------------------------------------------
+# PERSISTENCE — RDB
+#------------------------------------------------------------------------------
+{% if redis_rdb_enabled %}
+{% for interval in redis_save_intervals %}
+save {{ interval }}
+{% endfor %}
+{% else %}
+save ""
+{% endif %}
+stop-writes-on-bgsave-error yes
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+dir {{ redis_data_dir }}
+
+#------------------------------------------------------------------------------
+# PERSISTENCE — AOF
+#------------------------------------------------------------------------------
+appendonly {{ 'yes' if redis_aof_enabled else 'no' }}
+appendfilename "appendonly.aof"
+appenddirname ""
+appendfsync {{ redis_aof_fsync }}
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+
+#------------------------------------------------------------------------------
+# MEMORY
+#------------------------------------------------------------------------------
+maxmemory {{ redis_maxmemory }}
+maxmemory-policy {{ redis_maxmemory_policy }}
+activerehashing yes
+lazyfree-lazy-eviction no
+lazyfree-lazy-expire no
+lazyfree-lazy-server-del no
+replica-lazy-flush no
+
+#------------------------------------------------------------------------------
+# SLOW LOG
+#------------------------------------------------------------------------------
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+
+#------------------------------------------------------------------------------
+# LATENCY MONITORING
+#------------------------------------------------------------------------------
+latency-monitor-threshold 100
+
+#------------------------------------------------------------------------------
+# ADVANCED
+#------------------------------------------------------------------------------
+# Важно для Synapse: отключить transparent hugepages влияет извне (в rc.local)
+activedefrag no
+hash-max-listpack-entries 128
+hash-max-listpack-value 64
+list-max-listpack-size -2
+list-compress-depth 0
+set-max-intset-entries 512
+zset-max-listpack-entries 128
+zset-max-listpack-value 64
+hz 15
+dynamic-hz yes
+aof-rewrite-incremental-fsync yes
+rdb-save-incremental-fsync yes

@@ -1,0 +1,28 @@
+---
+coturn_config_dir: "/etc/turnserver"
+coturn_log_dir:    "/var/log/coturn"
+coturn_data_dir:   "/var/lib/coturn"
+coturn_pid_file:   "/var/run/coturn/turnserver.pid"
+
+# Логирование
+coturn_log_level: "warning"   # warning, error, info, verbose
+
+# Безопасность: запрет петель (loopback / RFC 1918)
+coturn_no_loopback_peers: true
+coturn_no_multicast_peers: true
+coturn_denied_peer_ip:
+  - "0.0.0.0-0.255.255.255"
+  - "10.0.0.0-10.255.255.255"
+  - "100.64.0.0-100.127.255.255"
+  - "127.0.0.0-127.255.255.255"
+  - "169.254.0.0-169.254.255.255"
+  - "172.16.0.0-172.31.255.255"
+  - "192.0.0.0-192.0.0.255"
+  - "192.168.0.0-192.168.255.255"
+  - "198.18.0.0-198.19.255.255"
+  - "198.51.100.0-198.51.100.255"
+  - "203.0.113.0-203.0.113.255"
+  - "240.0.0.0-255.255.255.255"
+  - "::1"
+  - "64:ff9b::-64:ff9b::ffff:ffff"
+  - "fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"

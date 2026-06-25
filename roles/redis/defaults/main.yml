@@ -1,0 +1,15 @@
+---
+redis_version:         "7.2"
+redis_data_dir:        "/var/lib/redis"
+redis_log_dir:         "/var/log/redis"
+redis_maxmemory:       "2gb"
+redis_maxmemory_policy: "noeviction"
+redis_aof_enabled:     true
+redis_aof_fsync:       "everysec"
+redis_rdb_enabled:     true
+redis_save_intervals:
+  - "3600 1"
+  - "300 100"
+  - "60 10000"
+redis_tls_enabled:     false
+redis_bind_ip:         "{{ redis_ip }}"

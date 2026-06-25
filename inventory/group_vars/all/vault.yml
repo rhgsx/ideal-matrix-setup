@@ -1,0 +1,19 @@
+---
+# Этот файл должен быть зашифрован через: ansible-vault encrypt inventory/group_vars/all/vault.yml
+#
+# Шаблон — заполните и зашифруйте перед деплоем:
+#
+#   ansible-vault encrypt inventory/group_vars/all/vault.yml
+
+vault_synapse_db_password:     "CHANGE_ME_synapse_db_pass"
+vault_mas_db_password:         "CHANGE_ME_mas_db_pass"
+vault_redis_password:          "CHANGE_ME_redis_pass"
+vault_coturn_static_auth_secret: "CHANGE_ME_coturn_secret"
+vault_livekit_api_key:         "devkey"
+vault_livekit_api_secret:      "CHANGE_ME_livekit_secret_min32chars"
+vault_synapse_registration_secret: "CHANGE_ME_registration_secret"
+vault_synapse_macaroon_secret: "CHANGE_ME_macaroon_secret"
+vault_synapse_form_secret:     "CHANGE_ME_form_secret"
+vault_mas_client_secret:       "CHANGE_ME_mas_oidc_client_secret"
+vault_mas_encryption_secret:   "CHANGE_ME_mas_encryption_key_32b"
+vault_postgres_admin_password: "CHANGE_ME_postgres_admin_pass"

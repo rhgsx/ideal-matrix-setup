@@ -1,0 +1,142 @@
+---
+- name: Add Matrix.org APT repository key
+  apt_key:
+    url: "https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg"
+    keyring: /usr/share/keyrings/matrix-org-archive-keyring.gpg
+    state: present
+
+- name: Add Matrix.org APT repository
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/matrix-org-archive-keyring.gpg] https://packages.matrix.org/debian/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: matrix-org
+
+- name: Install matrix-synapse (same version as main)
+  apt:
+    name:
+      - "matrix-synapse-py3={{ synapse_version }}"
+      - python3-pip
+    state: present
+    update_cache: true
+
+- name: Install Synapse extras on workers
+  pip:
+    name:
+      - "matrix-synapse[postgres,redis,systemd]=={{ synapse_version }}"
+    executable: pip3
+
+- name: Create worker config directory
+  file:
+    path: "{{ workers_config_dir }}"
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+
+- name: Create worker log directory
+  file:
+    path: "{{ workers_log_dir }}"
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+
+- name: Deploy shared homeserver.yaml for workers
+  template:
+    src: homeserver-worker-base.yaml.j2
+    dest: "{{ synapse_config_dir }}/homeserver.yaml"
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0640"
+    backup: true
+  notify: Restart all workers
+
+- name: Deploy worker-specific config files
+  template:
+    src: worker.yaml.j2
+    dest: "{{ workers_config_dir }}/{{ item.name }}.yaml"
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0640"
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Restart all workers
+
+- name: Deploy worker log configs
+  template:
+    src: worker-log.config.j2
+    dest: "{{ workers_config_dir }}/{{ item.name }}.log.config"
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0640"
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Deploy systemd units for each worker
+  template:
+    src: matrix-synapse-worker.service.j2
+    dest: "/etc/systemd/system/matrix-synapse-worker@{{ item.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Reload systemd
+    - Restart all workers
+
+- name: Deploy Synapse workers target unit
+  template:
+    src: matrix-synapse-workers.target.j2
+    dest: /etc/systemd/system/matrix-synapse-workers.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: true
+
+- name: Enable and start all worker units
+  systemd:
+    name: "matrix-synapse-worker@{{ item.name }}.service"
+    enabled: true
+    state: started
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Enable workers target
+  systemd:
+    name: matrix-synapse-workers.target
+    enabled: true
+    state: started
+
+# UFW rules — workers только слушают, внешний доступ через HAProxy
+- name: Allow worker ports from HAProxy
+  community.general.ufw:
+    rule: allow
+    src: "{{ haproxy_ip }}"
+    port: "{{ item.port }}"
+    proto: tcp
+    comment: "Worker {{ item.name }} from HAProxy"
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: "'replication' not in (item.worker_listeners | map(attribute='resources') | flatten)"
+
+- name: Allow replication ports from synapse main
+  community.general.ufw:
+    rule: allow
+    src: "{{ synapse_ip }}"
+    port: "{{ item.port }}"
+    proto: tcp
+    comment: "Worker replication {{ item.name }}"
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: "'replication' in (item.worker_listeners | map(attribute='resources') | flatten)"

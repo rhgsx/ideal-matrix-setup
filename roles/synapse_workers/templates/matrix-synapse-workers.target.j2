@@ -1,0 +1,7 @@
+[Unit]
+Description=Synapse Matrix Workers (all)
+After=network.target redis-server.service
+Wants={% for w in synapse_workers %}matrix-synapse-worker@{{ w.name }}.service{% if not loop.last %} {% endif %}{% endfor %}
+
+[Install]
+WantedBy=multi-user.target

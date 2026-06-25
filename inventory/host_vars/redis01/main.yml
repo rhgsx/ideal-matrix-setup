@@ -1,0 +1,23 @@
+---
+redis_version: "7.2"
+redis_data_dir: "/var/lib/redis"
+redis_log_dir:  "/var/log/redis"
+
+# Память
+redis_maxmemory: "2gb"
+redis_maxmemory_policy: "noeviction"   # Synapse требует точных данных
+
+# Persistence (AOF + RDB для надёжности)
+redis_aof_enabled: true
+redis_aof_fsync: "everysec"
+redis_rdb_enabled: true
+redis_save_intervals:
+  - "3600 1"
+  - "300 100"
+  - "60 10000"
+
+# TLS внутренний — выключен (сеть изолирована NAT)
+redis_tls_enabled: false
+
+# Bind только на внутренний интерфейс
+redis_bind_ip: "{{ redis_ip }}"

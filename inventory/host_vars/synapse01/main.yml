@@ -1,0 +1,30 @@
+---
+synapse_version: "1.121.0"
+synapse_data_dir: "/var/lib/matrix-synapse"
+synapse_log_dir:  "/var/log/matrix-synapse"
+synapse_config_dir: "/etc/matrix-synapse"
+
+# Настройки производительности основного процесса (не worker)
+synapse_event_cache_size: "50K"
+synapse_caches_global_factor: 2.0
+synapse_presence_enabled: true
+synapse_allow_public_rooms_without_auth: false
+synapse_allow_public_rooms_over_federation: true
+
+# Лимиты загрузки медиа
+synapse_max_upload_size: "100M"
+synapse_max_image_pixels: "32M"
+
+# Регистрация (отключена по умолчанию — через MAS/OIDC)
+synapse_enable_registration: false
+
+# Федерация
+synapse_allow_guest_access: false
+synapse_federation_domain_whitelist: []   # пусто = все разрешены
+
+# Ограничение скорости (rate limiting)
+synapse_rc_message_per_second: 0.2
+synapse_rc_message_burst: 10
+
+# Метрики Prometheus
+synapse_enable_metrics: true

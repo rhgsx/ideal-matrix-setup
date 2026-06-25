@@ -1,0 +1,6 @@
+---
+- name: Redis for Synapse worker replication
+  hosts: redis_cluster
+  become: true
+  roles:
+    - redis

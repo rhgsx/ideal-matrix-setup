@@ -1,0 +1,6 @@
+---
+- name: Element Web client
+  hosts: element
+  become: true
+  roles:
+    - element_web

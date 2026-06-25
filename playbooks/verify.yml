@@ -1,0 +1,117 @@
+---
+# Плейбук для проверки корректности деплоя
+- name: Verify Matrix stack deployment
+  hosts: matrix
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Check host connectivity
+      ping:
+
+- name: Verify PostgreSQL
+  hosts: database
+  become: true
+  tasks:
+    - name: PostgreSQL is running
+      systemd:
+        name: postgresql
+      register: pg_status
+      failed_when: pg_status.status.ActiveState != 'active'
+
+    - name: Synapse DB is accessible
+      community.postgresql.postgresql_ping:
+        db: "{{ synapse_db_name }}"
+        login_host: "{{ postgres_ip }}"
+        login_user: "{{ synapse_db_user }}"
+        login_password: "{{ vault_synapse_db_password }}"
+
+- name: Verify Redis
+  hosts: redis_cluster
+  become: true
+  tasks:
+    - name: Redis is running
+      systemd:
+        name: redis-server
+      register: redis_status
+      failed_when: redis_status.status.ActiveState != 'active'
+
+    - name: Redis responds to PING
+      command: redis-cli -h {{ redis_ip }} -p {{ redis_port }} -a {{ vault_redis_password }} PING
+      register: redis_ping
+      changed_when: false
+      failed_when: "'PONG' not in redis_ping.stdout"
+
+- name: Verify Synapse
+  hosts: synapse
+  become: true
+  tasks:
+    - name: Synapse is running
+      systemd:
+        name: matrix-synapse
+      register: synapse_status
+      failed_when: synapse_status.status.ActiveState != 'active'
+
+    - name: Synapse health check
+      uri:
+        url: "http://{{ synapse_ip }}:{{ synapse_http_port }}/health"
+        status_code: 200
+      register: synapse_health
+
+- name: Verify Workers
+  hosts: workers
+  become: true
+  tasks:
+    - name: Check all workers are active
+      systemd:
+        name: "matrix-synapse-worker@{{ item.name }}"
+      register: worker_status
+      failed_when: worker_status.status.ActiveState != 'active'
+      loop: "{{ synapse_workers }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check MAS is running
+      systemd:
+        name: mas
+      register: mas_status
+      failed_when: mas_status.status.ActiveState != 'active'
+
+- name: Verify Coturn
+  hosts: coturn
+  become: true
+  tasks:
+    - name: Coturn is running
+      systemd:
+        name: coturn
+      register: coturn_status
+      failed_when: coturn_status.status.ActiveState != 'active'
+
+- name: Verify LiveKit
+  hosts: livekit
+  become: true
+  tasks:
+    - name: LiveKit is running
+      systemd:
+        name: livekit
+      register: livekit_status
+      failed_when: livekit_status.status.ActiveState != 'active'
+
+    - name: LK-JWT is running
+      systemd:
+        name: lk-jwt
+      register: lkjwt_status
+      failed_when: lkjwt_status.status.ActiveState != 'active'
+
+- name: Verify HAProxy
+  hosts: haproxy
+  become: true
+  tasks:
+    - name: HAProxy is running
+      systemd:
+        name: haproxy
+      register: haproxy_status
+      failed_when: haproxy_status.status.ActiveState != 'active'
+
+    - name: HAProxy config is valid
+      command: haproxy -c -f /etc/haproxy/haproxy.cfg
+      changed_when: false

@@ -1,0 +1,93 @@
+---
+- name: Create MAS install directory
+  file:
+    path: /opt/mas
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+
+- name: Create MAS config directory
+  file:
+    path: /etc/mas
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+
+- name: Create MAS data directory
+  file:
+    path: /var/lib/mas
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+
+- name: Create MAS log directory
+  file:
+    path: /var/log/mas
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+
+- name: Download MAS binary
+  get_url:
+    url: "https://github.com/element-hq/matrix-authentication-service/releases/download/v{{ mas_version }}/mas-cli-x86_64-unknown-linux-musl.tar.gz"
+    dest: "/tmp/mas-{{ mas_version }}.tar.gz"
+    mode: "0644"
+
+- name: Extract MAS binary
+  unarchive:
+    src: "/tmp/mas-{{ mas_version }}.tar.gz"
+    dest: /opt/mas
+    remote_src: true
+    creates: /opt/mas/mas-cli
+
+- name: Symlink mas-cli to PATH
+  file:
+    src: /opt/mas/mas-cli
+    dest: /usr/local/bin/mas-cli
+    state: link
+
+- name: Deploy MAS config
+  template:
+    src: config.yaml.j2
+    dest: /etc/mas/config.yaml
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0640"
+    backup: true
+  notify: Restart mas
+
+- name: Run MAS database migrations
+  command: /usr/local/bin/mas-cli database migrate --config /etc/mas/config.yaml
+  become_user: "{{ matrix_user }}"
+  register: mas_migrate
+  changed_when: "'Applied' in mas_migrate.stdout"
+
+- name: Deploy MAS systemd unit
+  template:
+    src: mas.service.j2
+    dest: /etc/systemd/system/mas.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart mas
+
+- name: Enable and start MAS
+  systemd:
+    name: mas
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Allow MAS port from HAProxy
+  community.general.ufw:
+    rule: allow
+    src: "{{ haproxy_ip }}"
+    port: "{{ mas_port }}"
+    proto: tcp
+    comment: "MAS from HAProxy"

@@ -1,0 +1,171 @@
+---
+- name: Create livekit group
+  group:
+    name: livekit
+    system: true
+    state: present
+
+- name: Create livekit user
+  user:
+    name: livekit
+    group: livekit
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/livekit
+    create_home: false
+    state: present
+
+- name: Create livekit directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: livekit
+    group: livekit
+    mode: "0750"
+  loop:
+    - "{{ livekit_config_dir }}"
+    - "{{ livekit_log_dir }}"
+    - /var/lib/livekit
+    - /opt/livekit
+
+- name: Download LiveKit binary
+  get_url:
+    url: "https://github.com/livekit/livekit/releases/download/v{{ livekit_version }}/livekit_{{ livekit_version }}_linux_amd64.tar.gz"
+    dest: "/tmp/livekit-{{ livekit_version }}.tar.gz"
+    mode: "0644"
+
+- name: Extract LiveKit binary
+  unarchive:
+    src: "/tmp/livekit-{{ livekit_version }}.tar.gz"
+    dest: /opt/livekit
+    remote_src: true
+    creates: /opt/livekit/livekit-server
+
+- name: Symlink livekit-server to PATH
+  file:
+    src: /opt/livekit/livekit-server
+    dest: /usr/local/bin/livekit-server
+    state: link
+
+- name: Install livekit-jwt-service (go binary)
+  block:
+    - name: Check if Go is installed
+      command: which go
+      register: go_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Go for building livekit-jwt
+      block:
+        - name: Download Go
+          get_url:
+            url: "https://go.dev/dl/go1.22.4.linux-amd64.tar.gz"
+            dest: /tmp/go.tar.gz
+        - name: Extract Go
+          unarchive:
+            src: /tmp/go.tar.gz
+            dest: /usr/local
+            remote_src: true
+            creates: /usr/local/go/bin/go
+      when: go_check.rc != 0
+
+    - name: Install livekit-jwt-service via go install
+      command: /usr/local/go/bin/go install github.com/element-hq/lk-jwt-service@latest
+      environment:
+        GOPATH: /opt/livekit-jwt-build
+        HOME: /root
+      args:
+        creates: /opt/livekit-jwt-build/bin/lk-jwt-service
+
+    - name: Copy lk-jwt-service binary
+      copy:
+        src: /opt/livekit-jwt-build/bin/lk-jwt-service
+        dest: /usr/local/bin/lk-jwt-service
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+- name: Deploy livekit.yaml
+  template:
+    src: livekit.yaml.j2
+    dest: "{{ livekit_config_dir }}/livekit.yaml"
+    owner: livekit
+    group: livekit
+    mode: "0640"
+    backup: true
+  notify: Restart livekit
+
+- name: Deploy lk-jwt-service env file
+  template:
+    src: lk-jwt.env.j2
+    dest: "{{ livekit_config_dir }}/lk-jwt.env"
+    owner: livekit
+    group: livekit
+    mode: "0640"
+    backup: true
+  notify: Restart lk-jwt
+
+- name: Deploy livekit systemd unit
+  template:
+    src: livekit.service.j2
+    dest: /etc/systemd/system/livekit.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart livekit
+
+- name: Deploy lk-jwt-service systemd unit
+  template:
+    src: lk-jwt.service.j2
+    dest: /etc/systemd/system/lk-jwt.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart lk-jwt
+
+- name: Enable and start LiveKit
+  systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - livekit
+    - lk-jwt
+
+# UFW — LiveKit WebSocket доступен через HAProxy
+- name: Allow LiveKit WebSocket from HAProxy
+  community.general.ufw:
+    rule: allow
+    src: "{{ haproxy_ip }}"
+    port: "{{ livekit_port }}"
+    proto: tcp
+    comment: "LiveKit WS from HAProxy"
+
+- name: Allow lk-jwt from HAProxy
+  community.general.ufw:
+    rule: allow
+    src: "{{ haproxy_ip }}"
+    port: "{{ livekit_jwt_port }}"
+    proto: tcp
+    comment: "LiveKit JWT from HAProxy"
+
+# WebRTC media — нужен прямой доступ снаружи (через NAT)
+- name: Allow LiveKit RTC UDP (WebRTC)
+  community.general.ufw:
+    rule: allow
+    port: "{{ livekit_rtc_port_udp }}"
+    proto: udp
+    comment: "LiveKit WebRTC UDP"
+
+- name: Allow LiveKit RTC TCP (WebRTC fallback)
+  community.general.ufw:
+    rule: allow
+    port: "{{ livekit_rtc_port_tcp }}"
+    proto: tcp
+    comment: "LiveKit WebRTC TCP fallback"

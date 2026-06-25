@@ -1,0 +1,139 @@
+# Managed by Ansible — Matrix Authentication Service config
+
+#==============================================================================
+# HTTP сервер
+#==============================================================================
+http:
+  listeners:
+    - name: web
+      resources:
+        - name: discovery
+        - name: human
+        - name: oauth
+        - name: compat
+        - name: graphql
+          playground: false
+        - name: assets
+      binds:
+        - address: "{{ workers_ip }}:{{ mas_port }}"
+      proxy_protocol: false
+
+    - name: internal
+      resources:
+        - name: health
+      binds:
+        - address: "127.0.0.1:8091"
+
+  trusted_proxies:
+    - "{{ haproxy_ip }}/32"
+
+#==============================================================================
+# База данных
+#==============================================================================
+database:
+  uri: "postgresql://{{ mas_db_user }}:{{ vault_mas_db_password }}@{{ postgres_ip }}:{{ postgres_port }}/{{ mas_db_name }}"
+  max_connections: 10
+  min_connections: 1
+  connect_timeout: 30
+  idle_timeout: 600
+  max_lifetime: 1800
+
+#==============================================================================
+# Шифрование
+#==============================================================================
+secrets:
+  encryption: "{{ vault_mas_encryption_secret }}"
+
+  # Ключи подписи токенов (генерируется через mas-cli)
+  # Первый раз выполнить: mas-cli config generate --config /etc/mas/config.yaml
+  keys:
+    - kid: "RSA01"
+      key: |
+        # RSA private key — вставьте после: mas-cli config generate
+        # Или используйте отдельный файл с include
+
+#==============================================================================
+# Matrix Synapse интеграция
+#==============================================================================
+matrix:
+  homeserver: "{{ matrix_server_name }}"
+  secret: "{{ vault_mas_client_secret }}"
+  endpoint: "http://{{ synapse_ip }}:{{ synapse_http_port }}"
+
+#==============================================================================
+# Политики паролей
+#==============================================================================
+passwords:
+  enabled: true
+  minimum_complexity: 3
+  schemes:
+    - version: 1
+      algorithm: argon2id
+
+#==============================================================================
+# Email (SMTP) — раскомментируйте и настройте
+#==============================================================================
+# email:
+#   from: '"Matrix Auth" <auth@{{ matrix_server_name }}>'
+#   reply_to: '"Matrix Auth" <auth@{{ matrix_server_name }}>'
+#   transport:
+#     type: smtp
+#     mode: starttls
+#     hostname: smtp.example.com
+#     port: 587
+#     username: smtp_user
+#     password: smtp_password
+
+#==============================================================================
+# Клиентский интерфейс
+#==============================================================================
+branding:
+  service_name: "{{ matrix_server_name }} Matrix"
+  policy_uri: "https://{{ matrix_server_name }}/privacy"
+  tos_uri: "https://{{ matrix_server_name }}/tos"
+
+#==============================================================================
+# Upstream OIDC провайдеры (опционально)
+#==============================================================================
+# upstream_oauth2:
+#   providers:
+#     - id: "github"
+#       human_name: "GitHub"
+#       issuer: "https://token.actions.githubusercontent.com"
+#       client_id: "YOUR_GITHUB_CLIENT_ID"
+#       client_secret: "YOUR_GITHUB_CLIENT_SECRET"
+#       scope: "openid email profile"
+#       token_endpoint_auth_method: client_secret_post
+#       claims_imports:
+#         localpart:
+#           action: suggest
+#           template: "{{ '{{' }} user.preferred_username {{ '}}' }}"
+#         displayname:
+#           action: suggest
+#           template: "{{ '{{' }} user.name {{ '}}' }}"
+#         email:
+#           action: suggest
+#           template: "{{ '{{' }} user.email {{ '}}' }}"
+#           set_email_verification: always
+
+#==============================================================================
+# Политики регистрации
+#==============================================================================
+policy:
+  wasm_module: /opt/mas/policy.wasm
+  data:
+    # Разрешить регистрацию (false = только администраторы создают аккаунты)
+    registration_enabled: true
+    # Можно добавить email_domain_allowlist: ["example.com"]
+
+#==============================================================================
+# Логирование
+#==============================================================================
+telemetry:
+  tracing:
+    exporter: none
+  metrics:
+    exporter: prometheus
+    listen: "127.0.0.1:9093"
+  logging:
+    filter: "info,hyper=warn,tower_http=info"

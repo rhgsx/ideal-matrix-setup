@@ -1,0 +1,109 @@
+---
+- name: Add Matrix.org APT repository key
+  apt_key:
+    url: "https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg"
+    keyring: /usr/share/keyrings/matrix-org-archive-keyring.gpg
+    state: present
+
+- name: Add Matrix.org APT repository
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/matrix-org-archive-keyring.gpg] https://packages.matrix.org/debian/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: matrix-org
+
+- name: Install matrix-synapse
+  apt:
+    name:
+      - "matrix-synapse-py3={{ synapse_version }}"
+      - python3-pip
+      - python3-setuptools
+      - libjpeg-dev
+      - libxslt1-dev
+      - libxml2-dev
+      - zlib1g-dev
+    state: present
+    update_cache: true
+
+- name: Install Synapse extras (workers support)
+  pip:
+    name:
+      - "matrix-synapse[postgres,redis,url_preview,sentry,systemd]=={{ synapse_version }}"
+    executable: pip3
+    state: present
+
+- name: Create Synapse directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0750"
+  loop:
+    - "{{ synapse_config_dir }}"
+    - "{{ synapse_data_dir }}"
+    - "{{ synapse_data_dir }}/media_store"
+    - "{{ synapse_data_dir }}/uploads"
+    - "{{ synapse_log_dir }}"
+
+- name: Generate Synapse signing key (if absent)
+  command:
+    cmd: >
+      python3 -m synapse.app.homeserver
+      --server-name {{ matrix_server_name }}
+      --config-path {{ synapse_config_dir }}/homeserver.yaml
+      --generate-keys
+    creates: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
+  become_user: "{{ matrix_user }}"
+
+- name: Deploy homeserver.yaml
+  template:
+    src: homeserver.yaml.j2
+    dest: "{{ synapse_config_dir }}/homeserver.yaml"
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0640"
+    backup: true
+  notify: Restart synapse
+
+- name: Deploy log config
+  template:
+    src: log.config.j2
+    dest: "{{ synapse_config_dir }}/log.config"
+    owner: "{{ matrix_user }}"
+    group: "{{ matrix_group }}"
+    mode: "0640"
+  notify: Restart synapse
+
+- name: Deploy Synapse systemd unit
+  template:
+    src: matrix-synapse.service.j2
+    dest: /etc/systemd/system/matrix-synapse.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart synapse
+
+- name: Enable and start Synapse
+  systemd:
+    name: matrix-synapse
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Allow Synapse HTTP port from HAProxy
+  community.general.ufw:
+    rule: allow
+    src: "{{ haproxy_ip }}"
+    port: "{{ synapse_http_port }}"
+    proto: tcp
+    comment: "Synapse HTTP from HAProxy"
+
+- name: Allow Synapse replication port from workers
+  community.general.ufw:
+    rule: allow
+    src: "{{ workers_ip }}"
+    port: "{{ synapse_replication_port }}"
+    proto: tcp
+    comment: "Synapse replication from workers"

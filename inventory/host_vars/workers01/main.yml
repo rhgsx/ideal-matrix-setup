@@ -1,0 +1,275 @@
+---
+workers_config_dir: "/etc/matrix-synapse/workers"
+workers_log_dir:    "/var/log/matrix-synapse"
+
+# ============================================================
+#  WORKER DEFINITIONS
+#  Каждый worker — отдельный systemd-юнит.
+#  Порты выделены статически для детерминированной маршрутизации в HAProxy.
+# ============================================================
+
+synapse_workers:
+
+  # ----------------------------------------------------------
+  #  1. SYNCHROTRON — обслуживает /sync, /messages, /keys
+  #     Best practice: 1 worker на ~1000-2000 активных пользователей
+  # ----------------------------------------------------------
+  - name: "synchrotron1"
+    app:  "synapse.app.generic_worker"
+    port: 8101
+    metrics_port: 9201
+    worker_listeners:
+      - type: http
+        port: 8101
+        resources: [client, federation]
+    worker_name: "synchrotron1"
+
+  - name: "synchrotron2"
+    app:  "synapse.app.generic_worker"
+    port: 8102
+    metrics_port: 9202
+    worker_listeners:
+      - type: http
+        port: 8102
+        resources: [client, federation]
+    worker_name: "synchrotron2"
+
+  - name: "synchrotron3"
+    app:  "synapse.app.generic_worker"
+    port: 8103
+    metrics_port: 9203
+    worker_listeners:
+      - type: http
+        port: 8103
+        resources: [client, federation]
+    worker_name: "synchrotron3"
+
+  - name: "synchrotron4"
+    app:  "synapse.app.generic_worker"
+    port: 8104
+    metrics_port: 9204
+    worker_listeners:
+      - type: http
+        port: 8104
+        resources: [client, federation]
+    worker_name: "synchrotron4"
+
+  # ----------------------------------------------------------
+  #  2. FEDERATION READER — входящая федерация
+  # ----------------------------------------------------------
+  - name: "federation_reader1"
+    app:  "synapse.app.generic_worker"
+    port: 8111
+    metrics_port: 9211
+    worker_listeners:
+      - type: http
+        port: 8111
+        resources: [federation]
+    worker_name: "federation_reader1"
+
+  - name: "federation_reader2"
+    app:  "synapse.app.generic_worker"
+    port: 8112
+    metrics_port: 9212
+    worker_listeners:
+      - type: http
+        port: 8112
+        resources: [federation]
+    worker_name: "federation_reader2"
+
+  # ----------------------------------------------------------
+  #  3. GENERIC WORKERS — клиентские запросы (не /sync)
+  # ----------------------------------------------------------
+  - name: "generic_worker1"
+    app:  "synapse.app.generic_worker"
+    port: 8121
+    metrics_port: 9221
+    worker_listeners:
+      - type: http
+        port: 8121
+        resources: [client, federation]
+    worker_name: "generic_worker1"
+
+  - name: "generic_worker2"
+    app:  "synapse.app.generic_worker"
+    port: 8122
+    metrics_port: 9222
+    worker_listeners:
+      - type: http
+        port: 8122
+        resources: [client, federation]
+    worker_name: "generic_worker2"
+
+  - name: "generic_worker3"
+    app:  "synapse.app.generic_worker"
+    port: 8123
+    metrics_port: 9223
+    worker_listeners:
+      - type: http
+        port: 8123
+        resources: [client, federation]
+    worker_name: "generic_worker3"
+
+  - name: "generic_worker4"
+    app:  "synapse.app.generic_worker"
+    port: 8124
+    metrics_port: 9224
+    worker_listeners:
+      - type: http
+        port: 8124
+        resources: [client, federation]
+    worker_name: "generic_worker4"
+
+  # ----------------------------------------------------------
+  #  4. MEDIA REPOSITORY — отдельный worker для медиа
+  # ----------------------------------------------------------
+  - name: "media_repository"
+    app:  "synapse.app.media_repository"
+    port: 8131
+    metrics_port: 9231
+    worker_listeners:
+      - type: http
+        port: 8131
+        resources: [media]
+    worker_name: "media_repository"
+
+  # ----------------------------------------------------------
+  #  5. EVENT PERSISTERS — запись событий (stream_writers)
+  #     ТОЛЬКО ОДИН экземпляр на stream_writer (events)
+  #     Используем 2 для шардинга, назначается через stream_writers в homeserver.yaml
+  # ----------------------------------------------------------
+  - name: "event_persister1"
+    app:  "synapse.app.generic_worker"
+    port: 8141
+    metrics_port: 9241
+    worker_listeners:
+      - type: http
+        port: 8141
+        resources: [replication]
+    worker_name: "event_persister1"
+
+  - name: "event_persister2"
+    app:  "synapse.app.generic_worker"
+    port: 8142
+    metrics_port: 9242
+    worker_listeners:
+      - type: http
+        port: 8142
+        resources: [replication]
+    worker_name: "event_persister2"
+
+  # ----------------------------------------------------------
+  #  6. STREAM WRITERS — каждый пишет свой стрим
+  #     typing, to_device, account_data, receipts, presence
+  # ----------------------------------------------------------
+  - name: "stream_writer_typing"
+    app:  "synapse.app.generic_worker"
+    port: 8151
+    metrics_port: 9251
+    worker_listeners:
+      - type: http
+        port: 8151
+        resources: [replication, client]
+    worker_name: "stream_writer_typing"
+
+  - name: "stream_writer_to_device"
+    app:  "synapse.app.generic_worker"
+    port: 8152
+    metrics_port: 9252
+    worker_listeners:
+      - type: http
+        port: 8152
+        resources: [replication, client]
+    worker_name: "stream_writer_to_device"
+
+  - name: "stream_writer_account_data"
+    app:  "synapse.app.generic_worker"
+    port: 8153
+    metrics_port: 9253
+    worker_listeners:
+      - type: http
+        port: 8153
+        resources: [replication, client]
+    worker_name: "stream_writer_account_data"
+
+  - name: "stream_writer_receipts"
+    app:  "synapse.app.generic_worker"
+    port: 8154
+    metrics_port: 9254
+    worker_listeners:
+      - type: http
+        port: 8154
+        resources: [replication, client]
+    worker_name: "stream_writer_receipts"
+
+  - name: "stream_writer_presence"
+    app:  "synapse.app.generic_worker"
+    port: 8155
+    metrics_port: 9255
+    worker_listeners:
+      - type: http
+        port: 8155
+        resources: [replication, client]
+    worker_name: "stream_writer_presence"
+
+  # ----------------------------------------------------------
+  #  7. BACKGROUND TASKS — фоновые задачи (один экземпляр!)
+  # ----------------------------------------------------------
+  - name: "background_tasks"
+    app:  "synapse.app.generic_worker"
+    port: 8161
+    metrics_port: 9261
+    worker_listeners:
+      - type: http
+        port: 8161
+        resources: [replication]
+    worker_name: "background_tasks"
+
+  # ----------------------------------------------------------
+  #  8. PUSHER — рассылка push-уведомлений (один экземпляр)
+  # ----------------------------------------------------------
+  - name: "pusher"
+    app:  "synapse.app.generic_worker"
+    port: 8171
+    metrics_port: 9271
+    worker_listeners:
+      - type: http
+        port: 8171
+        resources: [replication]
+    worker_name: "pusher"
+
+  # ----------------------------------------------------------
+  #  9. FEDERATION SENDER — исходящая федерация (2 шарда)
+  # ----------------------------------------------------------
+  - name: "federation_sender1"
+    app:  "synapse.app.generic_worker"
+    port: 8181
+    metrics_port: 9281
+    worker_listeners:
+      - type: http
+        port: 8181
+        resources: [replication]
+    worker_name: "federation_sender1"
+
+  - name: "federation_sender2"
+    app:  "synapse.app.generic_worker"
+    port: 8182
+    metrics_port: 9282
+    worker_listeners:
+      - type: http
+        port: 8182
+        resources: [replication]
+    worker_name: "federation_sender2"
+
+  # ----------------------------------------------------------
+  #  10. USER DIRECTORY — обновление каталога пользователей
+  # ----------------------------------------------------------
+  - name: "user_dir"
+    app:  "synapse.app.generic_worker"
+    port: 8191
+    metrics_port: 9291
+    worker_listeners:
+      - type: http
+        port: 8191
+        resources: [replication, client]
+    worker_name: "user_dir"

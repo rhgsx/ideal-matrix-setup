@@ -1,0 +1,107 @@
+# Managed by Ansible — Coturn configuration
+# https://github.com/coturn/coturn/blob/master/examples/etc/turnserver.conf
+
+#==============================================================================
+# NETWORK
+#==============================================================================
+# Внутренний IP сервера (за NAT)
+listening-ip={{ coturn_ip }}
+listening-port={{ coturn_port }}
+tls-listening-port={{ coturn_tls_port }}
+
+# Внешний IP для NAT (сообщаем клиентам в ICE candidates)
+external-ip={{ coturn_external_ip }}/{{ coturn_ip }}
+
+# Relay address — внутренний IP (реальный трафик)
+relay-ip={{ coturn_ip }}
+
+# Диапазон relay-портов
+min-port={{ coturn_min_port }}
+max-port={{ coturn_max_port }}
+
+#==============================================================================
+# TLS
+#==============================================================================
+cert=/etc/ssl/matrix/fullchain.pem
+pkey=/etc/ssl/matrix/privkey.pem
+cipher-list="ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384"
+no-sslv3
+no-tlsv1
+no-tlsv1_1
+# TLS 1.2 и 1.3 разрешены
+
+#==============================================================================
+# AUTHENTICATION
+#==============================================================================
+# HMAC shared secret (совпадает с turn_shared_secret в Synapse)
+use-auth-secret
+static-auth-secret={{ vault_coturn_static_auth_secret }}
+realm={{ matrix_server_name }}
+
+# Убрать fingerprint — не совместим с некоторыми клиентами через strict NAT
+# fingerprint
+
+#==============================================================================
+# БЕЗОПАСНОСТЬ — блокировка RFC 1918 и loopback
+#==============================================================================
+no-loopback-peers
+no-multicast-peers
+
+{% for ip_range in coturn_denied_peer_ip %}
+denied-peer-ip={{ ip_range }}
+{% endfor %}
+
+# Запретить прямой relay на internal network (внутренние серверы)
+denied-peer-ip={{ internal_network | regex_replace('/.*', '') }}-{{ internal_network | ipsubnet | last }}
+
+#==============================================================================
+# ПРОТОКОЛЫ
+#==============================================================================
+# Разрешить только TURN (не STUN relay без auth)
+no-stun
+
+# UDP и TCP — оба нужны для fallback
+# no-udp
+# no-tcp
+
+# Отключить незашифрованный DTLS
+# no-dtls  # не отключаем — нужен для WebRTC
+
+#==============================================================================
+# ПРОИЗВОДИТЕЛЬНОСТЬ
+#==============================================================================
+# Количество relay-потоков (= кол-во ядер)
+relay-threads=4
+
+# Лог
+log-file={{ coturn_log_dir }}/turnserver.log
+log-level={{ coturn_log_level }}
+simple-log
+
+# Verbose debugging (раскомментируйте при отладке)
+# verbose
+
+# Pidfile
+pidfile={{ coturn_pid_file }}
+
+# User
+proc-user=turnserver
+proc-group=turnserver
+
+#==============================================================================
+# MISC
+#==============================================================================
+# Запретить TCP relay если клиент подключился по UDP (и наоборот)
+# Это повышает безопасность
+stale-nonce=600
+
+# Макс. время жизни allocation (секунды)
+max-allocate-lifetime=3600
+
+# CLI для мониторинга (только localhost)
+cli-ip=127.0.0.1
+cli-port=5766
+cli-password={{ vault_coturn_static_auth_secret | hash('sha1') }}
+
+# Метрики Prometheus
+prometheus

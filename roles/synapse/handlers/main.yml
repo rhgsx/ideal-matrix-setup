@@ -1,0 +1,9 @@
+---
+- name: Restart synapse
+  systemd:
+    name: matrix-synapse
+    state: restarted
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true

@@ -1,0 +1,17 @@
+# Managed by Ansible — do not edit manually
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Local superuser access (для обслуживания)
+local   all             postgres                                peer
+local   all             all                                     md5
+
+# Synapse
+host    {{ synapse_db_name }}  {{ synapse_db_user }}  {{ synapse_ip }}/32   scram-sha-256
+host    {{ synapse_db_name }}  {{ synapse_db_user }}  {{ workers_ip }}/32   scram-sha-256
+
+# MAS
+host    {{ mas_db_name }}      {{ mas_db_user }}      {{ workers_ip }}/32   scram-sha-256
+
+# Запретить всё остальное
+host    all             all             0.0.0.0/0               reject
+host    all             all             ::/0                    reject

@@ -1,0 +1,36 @@
+/var/log/matrix-synapse/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    sharedscripts
+    postrotate
+        systemctl kill --signal=HUP matrix-synapse.service || true
+        for unit in $(systemctl list-units 'matrix-synapse-worker@*' --no-legend | awk '{print $1}'); do
+            systemctl kill --signal=HUP "$unit" || true
+        done
+    endscript
+}
+
+/var/log/livekit/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+}
+
+/var/log/coturn/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    postrotate
+        systemctl kill --signal=HUP coturn.service || true
+    endscript
+}

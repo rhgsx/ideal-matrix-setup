@@ -1,0 +1,6 @@
+---
+- name: HAProxy reverse proxy with deep ACL
+  hosts: haproxy
+  become: true
+  roles:
+    - haproxy

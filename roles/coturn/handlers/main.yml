@@ -1,0 +1,9 @@
+---
+- name: Restart coturn
+  systemd:
+    name: coturn
+    state: restarted
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true

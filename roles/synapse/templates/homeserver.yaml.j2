@@ -1,0 +1,353 @@
+# Managed by Ansible — do not edit manually
+# Synapse homeserver.yaml
+# Version: {{ synapse_version }}
+
+#==============================================================================
+# SERVER
+#==============================================================================
+server_name: "{{ matrix_server_name }}"
+public_baseurl: "https://{{ matrix_domain }}"
+
+pid_file: /var/run/matrix-synapse/homeserver.pid
+
+# Слушаем только внутренний адрес — TLS терминируется на HAProxy
+listeners:
+  - port: {{ synapse_http_port }}
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses:
+      - "{{ synapse_ip }}"
+      - "127.0.0.1"
+    resources:
+      - names: [client, federation]
+        compress: false
+
+  # HTTP replication порт для workers
+  - port: {{ synapse_replication_port }}
+    tls: false
+    type: http
+    bind_addresses:
+      - "{{ synapse_ip }}"
+      - "127.0.0.1"
+    resources:
+      - names: [replication]
+        compress: false
+
+  # Метрики Prometheus
+  - port: {{ synapse_metrics_port }}
+    tls: false
+    type: metrics
+    bind_addresses:
+      - "127.0.0.1"
+
+#==============================================================================
+# DATABASE
+#==============================================================================
+database:
+  name: psycopg2
+  txn_limit: 10000
+  args:
+    user: "{{ synapse_db_user }}"
+    password: "{{ vault_synapse_db_password }}"
+    database: "{{ synapse_db_name }}"
+    host: "{{ postgres_ip }}"
+    port: {{ postgres_port }}
+    cp_min: 5
+    cp_max: 20
+    keepalives: 1
+    keepalives_idle: 10
+    keepalives_interval: 10
+    keepalives_count: 3
+
+#==============================================================================
+# REDIS (для межпроцессной коммуникации workers)
+#==============================================================================
+redis:
+  enabled: true
+  host: "{{ redis_ip }}"
+  port: {{ redis_port }}
+  password: "{{ vault_redis_password }}"
+  dbid: 0
+
+#==============================================================================
+# WORKERS
+# https://matrix-org.github.io/synapse/latest/workers.html
+#==============================================================================
+
+# Фоновые задачи — выделенный worker
+run_background_tasks_on: "background_tasks"
+
+# Обновление каталога пользователей — выделенный worker
+update_user_directory_from_worker: "user_dir"
+
+# Push-уведомления — выделенный worker
+notify_appservices_from_worker: "pusher"
+
+# Stream writers — каждый поток пишет только один worker
+stream_writers:
+  events:
+    - event_persister1
+    - event_persister2
+  typing:
+    - stream_writer_typing
+  to_device:
+    - stream_writer_to_device
+  account_data:
+    - stream_writer_account_data
+  receipts:
+    - stream_writer_receipts
+  presence:
+    - stream_writer_presence
+
+# Исходящая федерация — worker federation_sender
+send_federation: false   # главный процесс НЕ отправляет федерацию
+
+federation_sender_instances:
+  - federation_sender1
+  - federation_sender2
+
+#==============================================================================
+# TLS (отключён — HAProxy терминирует)
+#==============================================================================
+no_tls: true
+
+#==============================================================================
+# MEDIA
+#==============================================================================
+media_store_path: "{{ synapse_data_dir }}/media_store"
+max_upload_size: "{{ synapse_max_upload_size }}"
+max_image_pixels: "{{ synapse_max_image_pixels }}"
+media_retention:
+  local_media_lifetime: 90d
+  remote_media_lifetime: 14d
+
+# Превью URL
+url_preview_enabled: true
+url_preview_ip_range_blacklist:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "192.0.0.0/24"
+  - "169.254.0.0/16"
+  - "198.18.0.0/15"
+  - "198.51.100.0/24"
+  - "203.0.113.0/24"
+  - "224.0.0.0/4"
+  - "::1/128"
+  - "fe80::/10"
+  - "fc00::/7"
+  - "2001:db8::/32"
+  - "ff00::/8"
+  - "fec0::/10"
+
+#==============================================================================
+# SIGNING KEYS
+#==============================================================================
+signing_key_path: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
+
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# Подпись ответов для сервисов
+suppress_key_server_warning: true
+
+#==============================================================================
+# SECURITY
+#==============================================================================
+registration_shared_secret: "{{ vault_synapse_registration_secret }}"
+macaroon_secret_key:         "{{ vault_synapse_macaroon_secret }}"
+form_secret:                 "{{ vault_synapse_form_secret }}"
+
+# Регистрация через MAS (OIDC)
+enable_registration: {{ synapse_enable_registration | lower }}
+registration_requires_token: false
+
+# Гостевой доступ
+allow_guest_access: {{ synapse_allow_guest_access | lower }}
+
+# Password auth — делегировано MAS
+password_config:
+  enabled: false
+  localdb_enabled: false
+
+#==============================================================================
+# MATRIX AUTHENTICATION SERVICE (MAS) — OIDC/OAuth2
+#==============================================================================
+experimental_features:
+  msc3861:
+    enabled: true
+    issuer: "https://{{ mas_domain }}/"
+    client_id: "0000000000000000000SYNAPSE"
+    client_auth_method: client_secret_basic
+    client_secret: "{{ vault_mas_client_secret }}"
+    admin_token: "{{ vault_mas_client_secret }}"
+    account_management_url: "https://{{ mas_domain }}/account"
+
+#==============================================================================
+# RATE LIMITING
+#==============================================================================
+rc_message:
+  per_second: {{ synapse_rc_message_per_second }}
+  burst_count: {{ synapse_rc_message_burst }}
+
+rc_registration:
+  per_second: 0.17
+  burst_count: 3
+
+rc_login:
+  address:
+    per_second: 0.17
+    burst_count: 3
+  account:
+    per_second: 0.17
+    burst_count: 3
+  failed_attempts:
+    per_second: 0.17
+    burst_count: 3
+
+rc_admin_redaction:
+  per_second: 1
+  burst_count: 50
+
+rc_joins:
+  local:
+    per_second: 0.1
+    burst_count: 10
+  remote:
+    per_second: 0.01
+    burst_count: 10
+
+rc_3pid_validation:
+  per_second: 0.003
+  burst_count: 5
+
+rc_invites:
+  per_room:
+    per_second: 0.3
+    burst_count: 10
+  per_user:
+    per_second: 0.003
+    burst_count: 5
+  per_issuer:
+    per_second: 0.3
+    burst_count: 10
+
+rc_third_party_invite:
+  per_second: 0.2
+  burst_count: 10
+
+federation_rr_transactions_per_room_per_second: 50
+
+#==============================================================================
+# FEDERATION
+#==============================================================================
+allow_public_rooms_without_auth: {{ synapse_allow_public_rooms_without_auth | lower }}
+allow_public_rooms_over_federation: {{ synapse_allow_public_rooms_over_federation | lower }}
+
+{% if synapse_federation_domain_whitelist | length > 0 %}
+federation_domain_whitelist:
+{% for domain in synapse_federation_domain_whitelist %}
+  - {{ domain }}
+{% endfor %}
+{% endif %}
+
+# Подавляем известные серверы с проблемами (можно пополнять)
+federation_ip_range_blacklist:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "169.254.0.0/16"
+
+#==============================================================================
+# VOIP — Coturn
+#==============================================================================
+turn_uris:
+  - "turns:{{ coturn_external_ip }}:{{ coturn_tls_port }}?transport=udp"
+  - "turns:{{ coturn_external_ip }}:{{ coturn_tls_port }}?transport=tcp"
+  - "turn:{{ coturn_external_ip }}:{{ coturn_port }}?transport=udp"
+  - "turn:{{ coturn_external_ip }}:{{ coturn_port }}?transport=tcp"
+turn_shared_secret: "{{ vault_coturn_static_auth_secret }}"
+turn_user_lifetime: 86400000
+turn_allow_guests: false
+
+#==============================================================================
+# CACHES
+#==============================================================================
+event_cache_size: "{{ synapse_event_cache_size }}"
+
+caches:
+  global_factor: {{ synapse_caches_global_factor }}
+  per_cache_factors:
+    get_current_state_ids: 2.0
+    get_users_in_room: 3.0
+    get_room_type: 1.5
+
+#==============================================================================
+# PRESENCE
+#==============================================================================
+presence:
+  enabled: {{ synapse_presence_enabled | lower }}
+
+#==============================================================================
+# LOGGING
+#==============================================================================
+log_config: "{{ synapse_config_dir }}/log.config"
+
+#==============================================================================
+# METRICS
+#==============================================================================
+enable_metrics: {{ synapse_enable_metrics | lower }}
+metrics_flags:
+  known_servers: true
+
+report_stats: false
+
+#==============================================================================
+# USER DIRECTORY
+#==============================================================================
+user_directory:
+  enabled: true
+  search_all_users: false
+  prefer_local_users: true
+
+#==============================================================================
+# ROOM
+#==============================================================================
+default_room_version: "11"
+
+filter_timeline_limit: 100
+
+block_non_admin_invites: false
+
+enable_room_list_search: true
+
+#==============================================================================
+# RETENTION POLICY
+#==============================================================================
+retention:
+  enabled: false   # включите если нужна автоматическая очистка
+
+#==============================================================================
+# PUSH NOTIFICATIONS
+#==============================================================================
+push:
+  include_content: false
+  group_unread_count_by_room: false
+
+#==============================================================================
+# MISC
+#==============================================================================
+serve_server_wellknown: true
+
+enable_3pid_lookup: true
+
+allow_per_room_profiles: true
+
+forget_rooms_on_leave: false
+
+delete_stale_devices_after: 1y

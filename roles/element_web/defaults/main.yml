@@ -1,0 +1,4 @@
+---
+element_version:     "1.11.90"
+element_install_dir: "/var/www/element"
+element_nginx_port:  80

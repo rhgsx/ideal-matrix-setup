@@ -1,0 +1,14 @@
+---
+- name: Restart livekit
+  systemd:
+    name: livekit
+    state: restarted
+
+- name: Restart lk-jwt
+  systemd:
+    name: lk-jwt
+    state: restarted
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true

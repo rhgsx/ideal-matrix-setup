@@ -1,0 +1,342 @@
+# Managed by Ansible — HAProxy configuration
+# Matrix stack deep ACL routing
+
+#==============================================================================
+# GLOBAL
+#==============================================================================
+global
+    log         /dev/log local0 info
+    log         /dev/log local1 notice
+    chroot      /var/lib/haproxy
+    stats       socket /var/run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats       timeout 30s
+    user        haproxy
+    group       haproxy
+    daemon
+
+    # Производительность
+    nbthread    {{ haproxy_nbthread }}
+    maxconn     {{ haproxy_maxconn }}
+
+    # TLS tuning
+    ssl-default-bind-ciphers    ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-options    prefer-client-ciphers no-sslv3 no-tlsv10 no-tlsv11 no-tls-tickets
+    ssl-default-server-ciphers  ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    ssl-default-server-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-server-options  no-sslv3 no-tlsv10 no-tlsv11 no-tls-tickets
+    tune.ssl.default-dh-param   2048
+
+    # Буферы
+    tune.maxrewrite 1024
+    tune.bufsize    32768
+
+#==============================================================================
+# DEFAULTS
+#==============================================================================
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    option  forwardfor
+    option  http-server-close
+
+    timeout connect  {{ haproxy_timeout_connect }}
+    timeout client   {{ haproxy_timeout_client }}
+    timeout server   {{ haproxy_timeout_server }}
+    timeout tunnel   {{ haproxy_timeout_tunnel }}
+    timeout http-request {{ haproxy_timeout_http_req }}
+    timeout queue    {{ haproxy_timeout_queue }}
+
+    # Healthcheck
+    default-server inter 5s rise 2 fall 3 slowstart 30s
+
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http
+
+#==============================================================================
+# STATISTICS
+#==============================================================================
+frontend stats
+    bind *:{{ haproxy_stats_port }}
+    mode http
+    stats enable
+    stats uri /stats
+    stats realm "HAProxy Statistics"
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+    stats refresh 10s
+    stats show-legends
+    stats show-node
+    no log
+
+#==============================================================================
+# FRONTEND — HTTP → HTTPS redirect
+#==============================================================================
+frontend http_redirect
+    bind *:80
+    mode http
+    option forwardfor
+    http-request redirect scheme https code 301 unless { ssl_fc }
+
+#==============================================================================
+# FRONTEND — Matrix Federation (port 8448)
+# Принимает federation-запросы от других Matrix серверов
+#==============================================================================
+frontend matrix_federation
+    bind *:8448 ssl crt {{ tls_combined }} alpn h2,http/1.1
+    mode http
+    option forwardfor
+    option http-server-close
+
+    # X-Forwarded headers
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-For   %[src]
+
+    # Security headers
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    http-response set-header X-Content-Type-Options "nosniff"
+    http-response set-header X-Frame-Options "SAMEORIGIN"
+    http-response set-header Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Весь federation-трафик идёт на federation reader workers
+    default_backend federation_readers
+
+#==============================================================================
+# FRONTEND — HTTPS (основной: клиенты + federation через SNI)
+#==============================================================================
+frontend https_main
+    bind *:443 ssl crt {{ tls_combined }} alpn h2,http/1.1
+    mode http
+    option forwardfor
+    option http-server-close
+
+    # X-Forwarded headers
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-For   %[src]
+
+    # Security headers
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    http-response set-header X-Content-Type-Options "nosniff"
+    http-response set-header X-Frame-Options "SAMEORIGIN"
+    http-response set-header X-XSS-Protection "1; mode=block"
+    http-response set-header Referrer-Policy "strict-origin-when-cross-origin"
+    http-response set-header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+    # ----
+    # ACL DEFINITIONS
+    # ----
+
+    # --- Домены ---
+    acl host_matrix    hdr(host) -i {{ matrix_domain }}
+    acl host_mas       hdr(host) -i {{ mas_domain }}
+    acl host_element   hdr(host) -i {{ element_domain }}
+    acl host_livekit   hdr(host) -i livekit.{{ matrix_server_name }}
+
+    # --- /sync и связанные — должны идти на synchrotron ---
+    # Используем regex для точного матчинга версий API
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/sync$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/messages$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/members$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/state$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/state/[^/]+(/.*)?$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/joined_members$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/event/[^/]+$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/aliases$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/events$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/initial_sync$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/user/[^/]+/filter(/.*)?$
+    acl is_sync        path_reg -i ^/_matrix/client/(r0|v3)/keys/changes$
+
+    # --- Sliding Sync (MSC3575) ---
+    acl is_sliding_sync path_beg /_matrix/client/unstable/org.matrix.msc3575/sync
+
+    # --- Keys — идут на synchrotron (для актуальных device keys) ---
+    acl is_keys        path_reg -i ^/_matrix/client/(r0|v3)/keys/query$
+    acl is_keys        path_reg -i ^/_matrix/client/(r0|v3)/keys/upload$
+    acl is_keys        path_reg -i ^/_matrix/client/(r0|v3)/keys/claim$
+
+    # --- Federation ---
+    acl is_federation  path_beg /_matrix/federation/
+    acl is_federation  path_beg /_matrix/key/
+
+    # --- Media ---
+    acl is_media       path_reg -i ^/_matrix/(media|client/v1/media)/
+    acl is_media       path_reg -i ^/_synapse/admin/v1/(media|room/[^/]+/media)
+
+    # --- Admin API — только на main Synapse, не на workers ---
+    acl is_admin       path_beg /_synapse/admin/
+
+    # --- Push-правила — на stream_writer или generic worker ---
+    acl is_push        path_reg -i ^/_matrix/client/(r0|v3)/pushers/
+    acl is_push        path_reg -i ^/_matrix/client/(r0|v3)/notifications$
+    acl is_push        path_reg -i ^/_matrix/client/(r0|v3)/user/[^/]+/push_rules(/.*)?$
+
+    # --- Typing / receipts / presence / account_data — stream writers ---
+    acl is_typing      path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/typing/
+    acl is_to_device   path_reg -i ^/_matrix/client/(r0|v3)/sendToDevice/
+    acl is_account     path_reg -i ^/_matrix/client/(r0|v3)/user/[^/]+/account_data
+    acl is_receipts    path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/receipt/
+    acl is_presence    path_reg -i ^/_matrix/client/(r0|v3)/presence/
+    acl is_read_marker path_reg -i ^/_matrix/client/(r0|v3)/rooms/[^/]+/read_markers$
+
+    # --- WebSocket — /sync требует upgrade ---
+    acl is_websocket   hdr(Upgrade) -i websocket
+
+    # --- Well-known ---
+    acl is_wellknown   path_beg /.well-known/matrix/
+
+    # ----
+    # ROUTING RULES (порядок важен: специфичные → общие)
+    # ----
+
+    # LiveKit (отдельный домен)
+    use_backend livekit_backend     if host_livekit
+
+    # MAS (Matrix Authentication Service)
+    use_backend mas_backend         if host_mas
+
+    # Element Web
+    use_backend element_backend     if host_element
+
+    # Далее — только matrix_domain:
+    # Well-known — отдаём напрямую с Synapse main
+    use_backend synapse_main        if host_matrix is_wellknown
+
+    # Admin API — только на main Synapse
+    use_backend synapse_main        if host_matrix is_admin
+
+    # Federation через 443 (если клиент делает federation запрос через стандартный порт)
+    use_backend federation_readers  if host_matrix is_federation
+
+    # Media
+    use_backend media_workers       if host_matrix is_media
+
+    # Sync (synchrotron)
+    use_backend synchrotron_workers if host_matrix is_sync
+    use_backend synchrotron_workers if host_matrix is_sliding_sync
+    use_backend synchrotron_workers if host_matrix is_keys
+
+    # Stream writers — через generic workers (они знают о redirect через Redis)
+    use_backend generic_workers     if host_matrix is_typing
+    use_backend generic_workers     if host_matrix is_to_device
+    use_backend generic_workers     if host_matrix is_account
+    use_backend generic_workers     if host_matrix is_receipts
+    use_backend generic_workers     if host_matrix is_presence
+    use_backend generic_workers     if host_matrix is_read_marker
+    use_backend generic_workers     if host_matrix is_push
+
+    # Всё остальное на matrix_domain — generic workers
+    use_backend generic_workers     if host_matrix
+
+    # Default — 502
+    default_backend synapse_main
+
+#==============================================================================
+# BACKENDS
+#==============================================================================
+
+# --- Synapse Main (admin + well-known) ---
+backend synapse_main
+    mode http
+    balance roundrobin
+    option httpchk GET /health HTTP/1.1\r\nHost:\ {{ matrix_domain }}
+    http-check expect status 200
+
+    server synapse01 {{ synapse_ip }}:{{ synapse_http_port }} check maxconn 1000
+
+# --- Synchrotron Workers (для /sync — важен sticky по IP) ---
+backend synchrotron_workers
+    mode http
+    balance leastconn
+    option httpchk GET /health HTTP/1.1\r\nHost:\ {{ matrix_domain }}
+    http-check expect status 200
+
+    # /sync — долгие соединения, используем leastconn
+    timeout server 600s
+    timeout tunnel 3600s
+
+    # Cookie для sticky session (клиент должен попадать на тот же воркер)
+    cookie SYNAPSE_WORKER insert indirect nocache
+{% for worker in synchrotron_workers %}
+    server synchrotron{{ loop.index }} {{ worker.host }}:{{ worker.port }} check cookie sync{{ loop.index }} maxconn 500
+{% endfor %}
+
+# --- Federation Reader Workers ---
+backend federation_readers
+    mode http
+    balance roundrobin
+    option httpchk GET /health HTTP/1.1\r\nHost:\ {{ matrix_domain }}
+    http-check expect status 200
+{% for worker in federation_reader_workers %}
+    server fed_reader{{ loop.index }} {{ worker.host }}:{{ worker.port }} check maxconn 300
+{% endfor %}
+
+# --- Generic Workers (клиентские запросы) ---
+backend generic_workers
+    mode http
+    balance roundrobin
+    option httpchk GET /health HTTP/1.1\r\nHost:\ {{ matrix_domain }}
+    http-check expect status 200
+{% for worker in generic_workers %}
+    server generic{{ loop.index }} {{ worker.host }}:{{ worker.port }} check maxconn 500
+{% endfor %}
+
+# --- Media Workers ---
+backend media_workers
+    mode http
+    balance roundrobin
+    option httpchk GET /health HTTP/1.1\r\nHost:\ {{ matrix_domain }}
+    http-check expect status 200
+
+    # Медиа-запросы могут быть большими
+    timeout server 300s
+{% for worker in media_workers %}
+    server media{{ loop.index }} {{ worker.host }}:{{ worker.port }} check maxconn 200
+{% endfor %}
+
+# --- Matrix Authentication Service ---
+backend mas_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /health HTTP/1.1\r\nHost:\ {{ mas_domain }}
+    http-check expect status 200
+{% for worker in mas_workers %}
+    server mas{{ loop.index }} {{ worker.host }}:{{ worker.port }} check maxconn 300
+{% endfor %}
+
+# --- Element Web ---
+backend element_backend
+    mode http
+    balance roundrobin
+    option httpchk GET / HTTP/1.1\r\nHost:\ {{ element_domain }}
+    http-check expect rstatus 200|301|302
+
+    server element01 {{ element_ip }}:{{ element_nginx_port }} check maxconn 1000
+
+# --- LiveKit (WebSocket upgrade) ---
+backend livekit_backend
+    mode http
+    balance leastconn
+    option http-server-close
+    option forwardfor
+
+    # WebSocket нужен особый таймаут
+    timeout server  3600s
+    timeout tunnel  3600s
+
+    server livekit01 {{ livekit_ip }}:{{ livekit_port }} check maxconn 1000
+
+# --- LiveKit JWT Service ---
+backend livekit_jwt_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /healthz HTTP/1.1\r\nHost:\ livekit.{{ matrix_server_name }}
+    http-check expect status 200
+
+    server livekit_jwt01 {{ livekit_ip }}:{{ livekit_jwt_port }} check maxconn 200

@@ -1,0 +1,6 @@
+---
+- name: PostgreSQL for Synapse and MAS
+  hosts: database
+  become: true
+  roles:
+    - postgres

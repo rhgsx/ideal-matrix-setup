@@ -1,0 +1,7 @@
+---
+livekit_version:            "1.8.2"
+livekit_config_dir:         "/etc/livekit"
+livekit_log_dir:            "/var/log/livekit"
+livekit_rtc_use_external_ip: true
+livekit_limit_num_tracks:   0
+livekit_limit_bytes_per_sec: 0

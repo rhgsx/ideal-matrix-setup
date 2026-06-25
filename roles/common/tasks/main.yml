@@ -1,0 +1,125 @@
+---
+- name: Set hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+  notify: Restart chrony
+
+- name: Install common packages
+  apt:
+    name: "{{ common_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create matrix system group
+  group:
+    name: "{{ matrix_group }}"
+    gid: "{{ matrix_gid }}"
+    system: true
+    state: present
+
+- name: Create matrix system user
+  user:
+    name: "{{ matrix_user }}"
+    uid: "{{ matrix_uid }}"
+    group: "{{ matrix_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/matrix
+    create_home: false
+    state: present
+
+- name: Configure chrony NTP
+  template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Configure kernel parameters (sysctl)
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop: "{{ common_sysctl_params | dict2items }}"
+
+- name: Configure UFW — reset to defaults
+  community.general.ufw:
+    state: reset
+  changed_when: false
+
+- name: Configure UFW — default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+    - { direction: routed,   policy: deny }
+
+- name: Configure UFW — allow SSH
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+    comment: "SSH"
+
+- name: Configure UFW — allow internal network
+  community.general.ufw:
+    rule: allow
+    src: "{{ internal_network }}"
+    comment: "Internal matrix network"
+
+- name: Configure UFW — enable
+  community.general.ufw:
+    state: enabled
+
+- name: Configure fail2ban
+  template:
+    src: fail2ban-jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Enable and start fail2ban
+  systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+
+- name: Configure logrotate defaults
+  template:
+    src: logrotate-matrix.j2
+    dest: /etc/logrotate.d/matrix
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Set file limits for matrix services
+  template:
+    src: limits-matrix.conf.j2
+    dest: /etc/security/limits.d/matrix.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure systemd limits defaults
+  lineinfile:
+    path: /etc/systemd/system.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    backup: true
+  loop:
+    - { key: "DefaultLimitNOFILE", value: "65536" }
+    - { key: "DefaultLimitNPROC",  value: "65536" }
+  notify: Reload systemd

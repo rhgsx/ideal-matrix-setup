@@ -1,0 +1,14 @@
+---
+- name: Restart chrony
+  systemd:
+    name: chrony
+    state: restarted
+
+- name: Restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
