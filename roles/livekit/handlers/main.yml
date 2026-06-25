@@ -1,14 +1,6 @@
 ---
 - name: Restart livekit
-  systemd:
-    name: livekit
-    state: restarted
+  command: docker compose -f {{ docker_compose_dir }}/livekit/docker-compose.yml restart livekit
 
 - name: Restart lk-jwt
-  systemd:
-    name: lk-jwt
-    state: restarted
-
-- name: Reload systemd
-  systemd:
-    daemon_reload: true
+  command: docker compose -f {{ docker_compose_dir }}/livekit/docker-compose.yml restart lk-jwt

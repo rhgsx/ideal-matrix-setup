@@ -1,5 +1,5 @@
 ---
-- name: LiveKit SFU + JWT service
+- name: LiveKit SFU + JWT service (Docker, host network)
   hosts: livekit
   become: true
   roles:

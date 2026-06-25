@@ -1,5 +1,5 @@
 ---
-- name: Coturn TURN/STUN server
+- name: Coturn TURN/STUN server (Docker, host network)
   hosts: coturn
   become: true
   roles:

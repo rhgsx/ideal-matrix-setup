@@ -1,42 +1,10 @@
 ---
-- name: Add Matrix.org APT repository key
-  apt_key:
-    url: "https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg"
-    keyring: /usr/share/keyrings/matrix-org-archive-keyring.gpg
-    state: present
-
-- name: Add Matrix.org APT repository
-  apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/matrix-org-archive-keyring.gpg] https://packages.matrix.org/debian/ {{ ansible_distribution_release }} main"
-    state: present
-    filename: matrix-org
-
-- name: Install matrix-synapse
-  apt:
-    name:
-      - "matrix-synapse-py3={{ synapse_version }}"
-      - python3-pip
-      - python3-setuptools
-      - libjpeg-dev
-      - libxslt1-dev
-      - libxml2-dev
-      - zlib1g-dev
-    state: present
-    update_cache: true
-
-- name: Install Synapse extras (workers support)
-  pip:
-    name:
-      - "matrix-synapse[postgres,redis,url_preview,sentry,systemd]=={{ synapse_version }}"
-    executable: pip3
-    state: present
-
-- name: Create Synapse directories
+- name: Create Synapse host directories
   file:
     path: "{{ item }}"
     state: directory
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
+    owner: "{{ matrix_uid }}"
+    group: "{{ matrix_gid }}"
     mode: "0750"
   loop:
     - "{{ synapse_config_dir }}"
@@ -45,54 +13,73 @@
     - "{{ synapse_data_dir }}/uploads"
     - "{{ synapse_log_dir }}"
 
-- name: Generate Synapse signing key (if absent)
-  command:
-    cmd: >
-      python3 -m synapse.app.homeserver
-      --server-name {{ matrix_server_name }}
-      --config-path {{ synapse_config_dir }}/homeserver.yaml
-      --generate-keys
-    creates: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
-  become_user: "{{ matrix_user }}"
+- name: Create Docker Compose directory
+  file:
+    path: "{{ docker_compose_dir }}/synapse"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
 
 - name: Deploy homeserver.yaml
   template:
     src: homeserver.yaml.j2
     dest: "{{ synapse_config_dir }}/homeserver.yaml"
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
+    owner: "{{ matrix_uid }}"
+    group: "{{ matrix_gid }}"
     mode: "0640"
     backup: true
   notify: Restart synapse
 
-- name: Deploy log config
+- name: Deploy log.config
   template:
     src: log.config.j2
     dest: "{{ synapse_config_dir }}/log.config"
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
+    owner: "{{ matrix_uid }}"
+    group: "{{ matrix_gid }}"
     mode: "0640"
   notify: Restart synapse
 
-- name: Deploy Synapse systemd unit
+- name: Deploy docker-compose.yml for Synapse
   template:
-    src: matrix-synapse.service.j2
-    dest: /etc/systemd/system/matrix-synapse.service
+    src: docker-compose.yml.j2
+    dest: "{{ docker_compose_dir }}/synapse/docker-compose.yml"
     owner: root
     group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart synapse
+    mode: "0640"
+    backup: true
+  notify: Restart synapse
 
-- name: Enable and start Synapse
-  systemd:
-    name: matrix-synapse
-    enabled: true
-    state: started
-    daemon_reload: true
+- name: Pull Synapse image
+  command: docker compose -f {{ docker_compose_dir }}/synapse/docker-compose.yml pull
+  changed_when: false
 
-- name: Allow Synapse HTTP port from HAProxy
+- name: Generate Synapse signing key (if absent)
+  command: >
+    docker run --rm
+    --user {{ matrix_uid }}:{{ matrix_gid }}
+    -v {{ synapse_config_dir }}:{{ synapse_config_dir }}
+    -v {{ synapse_data_dir }}:{{ synapse_data_dir }}
+    ghcr.io/element-hq/synapse:v{{ synapse_version }}
+    generate --server-name {{ matrix_server_name }} --config-dir {{ synapse_config_dir }}
+  args:
+    creates: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
+
+- name: Start Synapse container
+  command: docker compose -f {{ docker_compose_dir }}/synapse/docker-compose.yml up -d --remove-orphans
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+
+- name: Wait for Synapse to become healthy
+  uri:
+    url: "http://{{ synapse_ip }}:{{ synapse_http_port }}/health"
+    status_code: 200
+  register: synapse_health
+  until: synapse_health.status == 200
+  retries: 30
+  delay: 5
+
+- name: Allow Synapse HTTP from HAProxy (UFW)
   community.general.ufw:
     rule: allow
     src: "{{ haproxy_ip }}"
@@ -100,7 +87,7 @@
     proto: tcp
     comment: "Synapse HTTP from HAProxy"
 
-- name: Allow Synapse replication port from workers
+- name: Allow Synapse replication from workers (UFW)
   community.general.ufw:
     rule: allow
     src: "{{ workers_ip }}"

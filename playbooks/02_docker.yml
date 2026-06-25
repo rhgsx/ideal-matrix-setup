@@ -1,0 +1,6 @@
+---
+- name: Install Docker CE on all non-HAProxy hosts
+  hosts: matrix:!haproxy
+  become: true
+  roles:
+    - docker

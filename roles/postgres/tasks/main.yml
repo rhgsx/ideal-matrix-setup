@@ -1,113 +1,82 @@
 ---
-- name: Install PostgreSQL repo key
-  apt:
-    deb: "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgdg-keyring/pgdg-keyring_2018.2_all.deb"
-    state: present
-
-- name: Add PostgreSQL APT repository
-  apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
-    state: present
-    filename: pgdg
-
-- name: Add PostgreSQL GPG key
-  apt_key:
-    url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
-    keyring: /usr/share/keyrings/postgresql.gpg
-    state: present
-
-- name: Install PostgreSQL {{ postgres_version }}
-  apt:
-    name:
-      - "postgresql-{{ postgres_version }}"
-      - "postgresql-client-{{ postgres_version }}"
-      - "python3-psycopg2"
-    state: present
-    update_cache: true
-
-- name: Ensure PostgreSQL is started
-  systemd:
-    name: postgresql
-    state: started
-    enabled: true
+- name: Create postgres host directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: 999        # UID postgres внутри официального образа postgres:alpine
+    group: 999
+    mode: "0750"
+  loop:
+    - "{{ postgres_data_dir }}"
+    - "{{ postgres_config_dir }}"
+    - /var/log/matrix/postgres
 
 - name: Deploy postgresql.conf
   template:
     src: postgresql.conf.j2
     dest: "{{ postgres_config_dir }}/postgresql.conf"
-    owner: postgres
-    group: postgres
+    owner: 999
+    group: 999
     mode: "0640"
     backup: true
-  notify: Restart postgresql
+  notify: Restart postgres
 
 - name: Deploy pg_hba.conf
   template:
     src: pg_hba.conf.j2
     dest: "{{ postgres_config_dir }}/pg_hba.conf"
-    owner: postgres
-    group: postgres
+    owner: 999
+    group: 999
     mode: "0640"
     backup: true
-  notify: Reload postgresql
+  notify: Reload postgres
 
-- name: Create Synapse database role
-  community.postgresql.postgresql_user:
-    name: "{{ synapse_db_user }}"
-    password: "{{ vault_synapse_db_password }}"
-    role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEDB,NOCREATEROLE
-    state: present
-  become_user: postgres
+- name: Deploy database init SQL
+  template:
+    src: init-matrix.sql.j2
+    dest: "{{ postgres_config_dir }}/init-matrix.sql"
+    owner: 999
+    group: 999
+    mode: "0640"
 
-- name: Create Synapse database
-  community.postgresql.postgresql_db:
-    name: "{{ synapse_db_name }}"
-    owner: "{{ synapse_db_user }}"
-    encoding: UTF8
-    lc_collate: C
-    lc_ctype: C
-    template: template0
-    state: present
-  become_user: postgres
+- name: Create Docker Compose directory
+  file:
+    path: "{{ docker_compose_dir }}/postgres"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
 
-- name: Grant Synapse user privileges
-  community.postgresql.postgresql_privs:
-    database: "{{ synapse_db_name }}"
-    privs: ALL
-    type: database
-    role: "{{ synapse_db_user }}"
-    state: present
-  become_user: postgres
+- name: Deploy docker-compose.yml for postgres
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ docker_compose_dir }}/postgres/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: Restart postgres
 
-- name: Create MAS database role
-  community.postgresql.postgresql_user:
-    name: "{{ mas_db_user }}"
-    password: "{{ vault_mas_db_password }}"
-    role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEDB,NOCREATEROLE
-    state: present
-  become_user: postgres
+- name: Pull PostgreSQL image
+  command: docker compose -f {{ docker_compose_dir }}/postgres/docker-compose.yml pull
+  changed_when: false
 
-- name: Create MAS database
-  community.postgresql.postgresql_db:
-    name: "{{ mas_db_name }}"
-    owner: "{{ mas_db_user }}"
-    encoding: UTF8
-    lc_collate: C
-    lc_ctype: C
-    template: template0
-    state: present
-  become_user: postgres
+- name: Start PostgreSQL container
+  command: docker compose -f {{ docker_compose_dir }}/postgres/docker-compose.yml up -d --remove-orphans
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
 
-- name: Grant MAS user privileges
-  community.postgresql.postgresql_privs:
-    database: "{{ mas_db_name }}"
-    privs: ALL
-    type: database
-    role: "{{ mas_db_user }}"
-    state: present
-  become_user: postgres
+- name: Wait for PostgreSQL to accept connections
+  command: >
+    docker exec matrix-postgres
+    pg_isready -U postgres -h {{ postgres_ip }} -p {{ postgres_port }}
+  register: pg_ready
+  until: pg_ready.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
 
-- name: Open PostgreSQL port in UFW from Synapse
+- name: Allow PostgreSQL from Synapse and workers (UFW)
   community.general.ufw:
     rule: allow
     src: "{{ item }}"

@@ -1,9 +1,3 @@
 ---
-- name: Reload systemd
-  systemd:
-    daemon_reload: true
-
 - name: Restart all workers
-  systemd:
-    name: "matrix-synapse-workers.target"
-    state: restarted
+  command: docker compose -f {{ docker_compose_dir }}/workers/docker-compose.yml restart

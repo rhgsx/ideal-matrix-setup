@@ -1,6 +1,0 @@
----
-- name: Synapse homeserver (main process)
-  hosts: synapse
-  become: true
-  roles:
-    - synapse

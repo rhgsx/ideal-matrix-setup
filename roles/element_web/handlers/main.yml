@@ -1,10 +1,7 @@
 ---
-- name: Reload nginx
-  systemd:
-    name: nginx
-    state: reloaded
+- name: Reload element
+  command: docker compose -f {{ docker_compose_dir }}/element/docker-compose.yml exec element nginx -s reload
+  listen: Reload element
 
-- name: Restart nginx
-  systemd:
-    name: nginx
-    state: restarted
+- name: Restart element
+  command: docker compose -f {{ docker_compose_dir }}/element/docker-compose.yml restart element

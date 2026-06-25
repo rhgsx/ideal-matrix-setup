@@ -1,5 +1,5 @@
 ---
-- name: Element Web client
+- name: Element Web client (Docker, nginx)
   hosts: element
   become: true
   roles:

@@ -1,0 +1,44 @@
+# Managed by Ansible — Redis 7.2 for Matrix worker replication
+name: matrix-redis
+
+services:
+  redis:
+    image: redis:{{ redis_version }}-alpine
+    container_name: matrix-redis
+    restart: unless-stopped
+    network_mode: host
+
+    # Передаём наш кастомный конфиг
+    command: redis-server /etc/redis/redis.conf
+
+    volumes:
+      - /etc/matrix/redis/redis.conf:/etc/redis/redis.conf:ro
+      - {{ redis_data_dir }}:/var/lib/redis
+      - {{ redis_log_dir }}:/var/log/redis
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - -h
+        - "{{ redis_ip }}"
+        - -p
+        - "{{ redis_port }}"
+        - -a
+        - "{{ vault_redis_password }}"
+        - PING
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536

@@ -1,9 +1,3 @@
 ---
 - name: Restart synapse
-  systemd:
-    name: matrix-synapse
-    state: restarted
-
-- name: Reload systemd
-  systemd:
-    daemon_reload: true
+  command: docker compose -f {{ docker_compose_dir }}/synapse/docker-compose.yml restart synapse

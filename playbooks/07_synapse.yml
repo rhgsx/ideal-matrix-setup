@@ -1,0 +1,6 @@
+---
+- name: Synapse homeserver main process (Docker, host network)
+  hosts: synapse
+  become: true
+  roles:
+    - synapse

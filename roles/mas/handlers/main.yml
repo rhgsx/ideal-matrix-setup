@@ -1,9 +1,3 @@
 ---
 - name: Restart mas
-  systemd:
-    name: mas
-    state: restarted
-
-- name: Reload systemd
-  systemd:
-    daemon_reload: true
+  command: docker compose -f {{ docker_compose_dir }}/mas/docker-compose.yml restart mas

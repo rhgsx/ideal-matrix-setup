@@ -1,72 +1,65 @@
 ---
-- name: Add Redis official APT repository key
-  apt_key:
-    url: "https://packages.redis.io/gpg"
-    keyring: /usr/share/keyrings/redis-archive-keyring.gpg
-    state: present
-
-- name: Add Redis APT repository
-  apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb {{ ansible_distribution_release }} main"
-    state: present
-    filename: redis
-
-- name: Install Redis
-  apt:
-    name:
-      - "redis-server"
-      - "redis-tools"
-    state: present
-    update_cache: true
-
-- name: Create Redis directories
+- name: Create Redis host directories
   file:
     path: "{{ item }}"
     state: directory
-    owner: redis
-    group: redis
+    owner: 999      # UID redis внутри redis:alpine
+    group: 999
     mode: "0750"
   loop:
     - "{{ redis_data_dir }}"
     - "{{ redis_log_dir }}"
+    - /etc/matrix/redis
 
 - name: Deploy redis.conf
   template:
     src: redis.conf.j2
-    dest: /etc/redis/redis.conf
-    owner: redis
-    group: redis
+    dest: /etc/matrix/redis/redis.conf
+    owner: 999
+    group: 999
     mode: "0640"
     backup: true
   notify: Restart redis
 
-- name: Deploy redis systemd override (ulimits)
-  template:
-    src: redis-override.conf.j2
-    dest: /etc/systemd/system/redis-server.service.d/override.conf
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart redis
-
-- name: Create systemd override directory for redis
+- name: Create Docker Compose directory
   file:
-    path: /etc/systemd/system/redis-server.service.d
+    path: "{{ docker_compose_dir }}/redis"
     state: directory
     owner: root
     group: root
-    mode: "0755"
+    mode: "0750"
 
-- name: Enable and start Redis
-  systemd:
-    name: redis-server
-    enabled: true
-    state: started
-    daemon_reload: true
+- name: Deploy docker-compose.yml for Redis
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ docker_compose_dir }}/redis/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: Restart redis
 
-- name: Allow Redis port from Synapse and workers
+- name: Pull Redis image
+  command: docker compose -f {{ docker_compose_dir }}/redis/docker-compose.yml pull
+  changed_when: false
+
+- name: Start Redis container
+  command: docker compose -f {{ docker_compose_dir }}/redis/docker-compose.yml up -d --remove-orphans
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+
+- name: Wait for Redis to accept connections
+  command: >
+    docker exec matrix-redis
+    redis-cli -h {{ redis_ip }} -p {{ redis_port }} -a {{ vault_redis_password }} PING
+  register: redis_ping
+  until: "'PONG' in redis_ping.stdout"
+  retries: 20
+  delay: 2
+  changed_when: false
+  no_log: true
+
+- name: Allow Redis from Synapse and workers (UFW)
   community.general.ufw:
     rule: allow
     src: "{{ item }}"

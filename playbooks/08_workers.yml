@@ -1,0 +1,7 @@
+---
+- name: Synapse Workers and Matrix Authentication Service (Docker, host network)
+  hosts: workers
+  become: true
+  roles:
+    - synapse_workers
+    - mas

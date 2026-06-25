@@ -1,115 +1,164 @@
-# Operations Guide
+# Operations Guide — Matrix Stack (Docker)
+
+## Сервисы и где они запущены
+
+| Хост        | Сервис              | Тип           | Compose dir                      |
+|-------------|---------------------|---------------|----------------------------------|
+| haproxy01   | HAProxy             | native        | —                                |
+| synapse01   | Synapse main        | Docker        | /opt/matrix/compose/synapse/     |
+| postgres01  | PostgreSQL 16       | Docker        | /opt/matrix/compose/postgres/    |
+| redis01     | Redis 7.2           | Docker        | /opt/matrix/compose/redis/       |
+| livekit01   | LiveKit + lk-jwt    | Docker        | /opt/matrix/compose/livekit/     |
+| coturn01    | Coturn              | Docker        | /opt/matrix/compose/coturn/      |
+| workers01   | 17 Synapse workers  | Docker        | /opt/matrix/compose/workers/     |
+| workers01   | MAS                 | Docker        | /opt/matrix/compose/mas/         |
+| element01   | Element Web (nginx) | Docker        | /opt/matrix/compose/element/     |
 
 ## Первый деплой
 
 ```bash
-# 0. Установить зависимости Ansible
+# 0. Зависимости Ansible
 ansible-galaxy collection install -r requirements.yml
 
-# 1. Заполнить vault
-cp inventory/group_vars/all/vault.yml /tmp/vault_template.yml
-# отредактировать все CHANGE_ME значения
+# 1. Заполнить vault-секреты
+cp inventory/group_vars/all/vault.yml vault_template.yml
+# Отредактировать все CHANGE_ME значения
 ansible-vault encrypt inventory/group_vars/all/vault.yml
+echo "your_vault_password" > .vault_pass && chmod 600 .vault_pass
 
-# 2. Создать .vault_pass
-echo "your_vault_password" > .vault_pass
-chmod 600 .vault_pass
+# 2. Установить реальные IP в inventory/group_vars/all/main.yml
+#    external_ip, haproxy_ip, synapse_ip, ...
 
-# 3. Проверить инвентарь
-ansible-inventory --list
-
-# 4. Проверить коннективность
+# 3. Проверить коннективность
 ansible all -m ping
 
-# 5. Деплой по шагам (первый раз лучше пошагово)
+# 4. Пошаговый деплой (рекомендуется при первом запуске)
 ansible-playbook playbooks/01_common.yml
-ansible-playbook playbooks/02_postgres.yml
-ansible-playbook playbooks/03_redis.yml
-ansible-playbook playbooks/04_coturn.yml
-ansible-playbook playbooks/05_livekit.yml
-ansible-playbook playbooks/06_synapse.yml
+ansible-playbook playbooks/02_docker.yml
+ansible-playbook playbooks/03_postgres.yml
+ansible-playbook playbooks/04_redis.yml
+ansible-playbook playbooks/05_coturn.yml
+ansible-playbook playbooks/06_livekit.yml
+ansible-playbook playbooks/07_synapse.yml  # генерирует signing key
 
-# 6. Сгенерировать ключи MAS (один раз)
-ansible workers01 -m command -a "mas-cli config generate --config /etc/mas/config.yaml" --become
+# 5. Скопировать signing key с synapse01 на workers01
+ansible synapse01 -m fetch -a "src={{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key dest=/tmp/"
+ansible workers01 -m copy -a "src=/tmp/synapse01{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key dest={{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key owner={{ matrix_uid }} mode=0640"
 
-# 7. Деплой workers и MAS
-ansible-playbook playbooks/07_workers.yml
+# 6. Workers и MAS
+ansible-playbook playbooks/08_workers.yml
 
-# 8. Element Web
-ansible-playbook playbooks/08_element_web.yml
+# 7. Element Web
+ansible-playbook playbooks/09_element_web.yml
 
-# 9. Разместить TLS сертификат на haproxy01
-# scp combined.pem user@10.0.1.10:/etc/ssl/matrix/combined.pem
-# scp fullchain.pem user@10.0.1.60:/etc/ssl/matrix/fullchain.pem
-# scp privkey.pem user@10.0.1.60:/etc/ssl/matrix/privkey.pem
+# 8. TLS сертификаты
+# На haproxy01:
+cat fullchain.pem privkey.pem > /etc/ssl/matrix/combined.pem
+chmod 640 /etc/ssl/matrix/combined.pem && chown root:haproxy /etc/ssl/matrix/combined.pem
 
-# 10. HAProxy
-ansible-playbook playbooks/09_haproxy.yml
+# На coturn01:
+cp fullchain.pem /etc/ssl/matrix/fullchain.pem
+cp privkey.pem   /etc/ssl/matrix/privkey.pem
 
-# 11. Верификация
+# 9. HAProxy (только когда TLS cert готов)
+ansible-playbook playbooks/10_haproxy.yml
+
+# 10. Полная верификация
 ansible-playbook playbooks/verify.yml
+```
+
+## Управление контейнерами
+
+```bash
+# Просмотр всех Matrix контейнеров на хосте
+docker ps --filter "name=matrix-"
+docker ps --filter "name=synapse-"
+
+# Логи конкретного воркера
+docker logs synapse-synchrotron1 -f --tail=100
+
+# Логи MAS
+docker logs matrix-mas -f
+
+# Рестарт конкретного воркера
+docker restart synapse-synchrotron1
+
+# Рестарт всех воркеров
+docker compose -f /opt/matrix/compose/workers/docker-compose.yml restart
+
+# Рестарт Synapse main
+docker compose -f /opt/matrix/compose/synapse/docker-compose.yml restart
+
+# Статус всех воркеров
+docker compose -f /opt/matrix/compose/workers/docker-compose.yml ps
+```
+
+## Обновление Synapse
+
+```bash
+# 1. Обновить synapse_version в inventory/host_vars/synapse01/main.yml
+#    и в inventory/host_vars/workers01/main.yml
+
+# 2. Применить на main процессе
+ansible-playbook playbooks/07_synapse.yml
+
+# 3. Применить на воркерах
+ansible-playbook playbooks/08_workers.yml
+
+# Или вручную:
+docker compose -f /opt/matrix/compose/synapse/docker-compose.yml pull
+docker compose -f /opt/matrix/compose/synapse/docker-compose.yml up -d
+
+docker compose -f /opt/matrix/compose/workers/docker-compose.yml pull
+docker compose -f /opt/matrix/compose/workers/docker-compose.yml up -d
 ```
 
 ## Создание первого администратора
 
 ```bash
 # На synapse01
-ssh synapse01
-sudo -u matrix register_new_matrix_user \
+docker exec -it matrix-synapse register_new_matrix_user \
   -c /etc/matrix-synapse/homeserver.yaml \
   -u admin \
   -p 'STRONG_PASSWORD' \
-  -a   # -a = admin
+  -a \
+  http://localhost:8008
 ```
 
-## Обновление Synapse
+## Просмотр логов PostgreSQL
 
 ```bash
-# Обновить версию в inventory/host_vars/synapse01/main.yml и inventory/host_vars/workers01/main.yml
-# synapse_version: "X.Y.Z"
+# На postgres01
+docker logs matrix-postgres -f --tail=200
 
-ansible-playbook playbooks/06_synapse.yml
-ansible-playbook playbooks/07_workers.yml
+# Или из примонтированной директории
+tail -f /var/log/matrix/postgres/postgresql.log
 ```
 
-## Мониторинг
+## Мониторинг Redis
 
 ```bash
-# HAProxy stats
-open http://10.0.1.10:8404/stats
-
-# Статус workers (на workers01)
-systemctl list-units 'matrix-synapse-worker@*' --no-legend
-
-# Логи воркера
-journalctl -u matrix-synapse-worker@synchrotron1 -f
-
-# Redis мониторинг
-redis-cli -h 10.0.1.40 -a PASSWORD monitor
-
-# PostgreSQL active connections
-psql -h 10.0.1.30 -U postgres -c "SELECT count(*) FROM pg_stat_activity;"
-```
-
-## Откат воркера при проблеме
-
-```bash
-# Перезапустить конкретный воркер
-ansible workers01 -m systemd -a "name=matrix-synapse-worker@synchrotron1 state=restarted" --become
-
-# Перезапустить все воркеры
-ansible workers01 -m systemd -a "name=matrix-synapse-workers.target state=restarted" --become
+# На redis01
+docker exec -it matrix-redis redis-cli -h 10.0.1.40 -a PASSWORD
+> INFO stats
+> INFO memory
+> CLIENT LIST
 ```
 
 ## Проверка federation
 
 ```bash
-# С любого хоста
-curl -s "https://matrix.org/_matrix/federation/v1/version" | jq .
-
-# Проверить свой сервер
 curl -s "https://matrix.example.com/_matrix/federation/v1/version" | jq .
+# Внешний тестер:
+curl "https://federationtester.matrix.org/api/report?server_name=example.com" | jq .
+```
 
-# Тест federation с matrix.org
-curl -s "https://federationtester.matrix.org/api/report?server_name=example.com" | jq .
+## Откат на предыдущую версию
+
+```bash
+# Docker сохраняет предыдущий образ под тегом <none>
+# Откат:
+docker tag ghcr.io/element-hq/synapse:v1.121.0 ghcr.io/element-hq/synapse:current
+docker tag ghcr.io/element-hq/synapse:v1.120.0 ghcr.io/element-hq/synapse:v1.121.0
+docker compose -f /opt/matrix/compose/synapse/docker-compose.yml up -d
 ```

@@ -1,90 +1,75 @@
 ---
-- name: Create MAS install directory
+- name: Create MAS host directories
   file:
-    path: /opt/mas
+    path: "{{ item }}"
     state: directory
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
+    owner: "{{ matrix_uid }}"
+    group: "{{ matrix_gid }}"
     mode: "0750"
-
-- name: Create MAS config directory
-  file:
-    path: /etc/mas
-    state: directory
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
-    mode: "0750"
-
-- name: Create MAS data directory
-  file:
-    path: /var/lib/mas
-    state: directory
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
-    mode: "0750"
-
-- name: Create MAS log directory
-  file:
-    path: /var/log/mas
-    state: directory
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
-    mode: "0750"
-
-- name: Download MAS binary
-  get_url:
-    url: "https://github.com/element-hq/matrix-authentication-service/releases/download/v{{ mas_version }}/mas-cli-x86_64-unknown-linux-musl.tar.gz"
-    dest: "/tmp/mas-{{ mas_version }}.tar.gz"
-    mode: "0644"
-
-- name: Extract MAS binary
-  unarchive:
-    src: "/tmp/mas-{{ mas_version }}.tar.gz"
-    dest: /opt/mas
-    remote_src: true
-    creates: /opt/mas/mas-cli
-
-- name: Symlink mas-cli to PATH
-  file:
-    src: /opt/mas/mas-cli
-    dest: /usr/local/bin/mas-cli
-    state: link
+  loop:
+    - /etc/matrix/mas
+    - /var/lib/matrix/mas
+    - /var/log/matrix/mas
 
 - name: Deploy MAS config
   template:
     src: config.yaml.j2
-    dest: /etc/mas/config.yaml
-    owner: "{{ matrix_user }}"
-    group: "{{ matrix_group }}"
+    dest: /etc/matrix/mas/config.yaml
+    owner: "{{ matrix_uid }}"
+    group: "{{ matrix_gid }}"
     mode: "0640"
     backup: true
   notify: Restart mas
 
+- name: Create Docker Compose directory for MAS
+  file:
+    path: "{{ docker_compose_dir }}/mas"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Deploy docker-compose.yml for MAS
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ docker_compose_dir }}/mas/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: Restart mas
+
+- name: Pull MAS image
+  command: docker compose -f {{ docker_compose_dir }}/mas/docker-compose.yml pull
+  changed_when: false
+
 - name: Run MAS database migrations
-  command: /usr/local/bin/mas-cli database migrate --config /etc/mas/config.yaml
-  become_user: "{{ matrix_user }}"
+  command: >
+    docker run --rm
+    --network host
+    --user {{ matrix_uid }}:{{ matrix_gid }}
+    -v /etc/matrix/mas:/etc/mas:ro
+    -v /var/lib/matrix/mas:/var/lib/mas
+    ghcr.io/element-hq/matrix-authentication-service:{{ mas_version }}
+    database migrate --config /etc/mas/config.yaml
   register: mas_migrate
   changed_when: "'Applied' in mas_migrate.stdout"
 
-- name: Deploy MAS systemd unit
-  template:
-    src: mas.service.j2
-    dest: /etc/systemd/system/mas.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart mas
+- name: Start MAS container
+  command: docker compose -f {{ docker_compose_dir }}/mas/docker-compose.yml up -d --remove-orphans
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
 
-- name: Enable and start MAS
-  systemd:
-    name: mas
-    enabled: true
-    state: started
-    daemon_reload: true
+- name: Wait for MAS to become healthy
+  uri:
+    url: "http://{{ workers_ip }}:{{ mas_port }}/_health"
+    status_code: 200
+  register: mas_health
+  until: mas_health.status == 200
+  retries: 20
+  delay: 3
 
-- name: Allow MAS port from HAProxy
+- name: Allow MAS port from HAProxy (UFW)
   community.general.ufw:
     rule: allow
     src: "{{ haproxy_ip }}"

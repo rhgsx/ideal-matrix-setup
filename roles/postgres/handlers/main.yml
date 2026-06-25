@@ -1,10 +1,8 @@
 ---
-- name: Restart postgresql
-  systemd:
-    name: postgresql
-    state: restarted
+- name: Restart postgres
+  command: docker compose -f {{ docker_compose_dir }}/postgres/docker-compose.yml restart postgres
+  listen: Restart postgres
 
-- name: Reload postgresql
-  systemd:
-    name: postgresql
-    state: reloaded
+- name: Reload postgres
+  command: docker exec matrix-postgres pg_ctl reload
+  listen: Reload postgres

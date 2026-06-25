@@ -15,6 +15,7 @@ http:
           playground: false
         - name: assets
       binds:
+        # network_mode: host → слушаем на реальном IP хоста
         - address: "{{ workers_ip }}:{{ mas_port }}"
       proxy_protocol: false
 

@@ -1,5 +1,5 @@
 ---
-- name: PostgreSQL for Synapse and MAS
+- name: PostgreSQL for Synapse and MAS (Docker)
   hosts: database
   become: true
   roles:

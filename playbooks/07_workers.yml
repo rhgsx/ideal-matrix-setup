@@ -1,7 +1,0 @@
----
-- name: Synapse Workers and Matrix Authentication Service
-  hosts: workers
-  become: true
-  roles:
-    - synapse_workers
-    - mas

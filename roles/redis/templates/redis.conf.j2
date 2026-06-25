@@ -14,10 +14,10 @@ tcp-keepalive 300
 # GENERAL
 #------------------------------------------------------------------------------
 daemonize no
-supervised systemd
-pidfile /var/run/redis/redis-server.pid
+# В Docker supervised=no; systemd не используется внутри контейнера
+supervised no
 loglevel notice
-logfile {{ redis_log_dir }}/redis-server.log
+logfile /var/log/redis/redis-server.log
 databases 16
 
 #------------------------------------------------------------------------------
@@ -39,7 +39,8 @@ stop-writes-on-bgsave-error yes
 rdbcompression yes
 rdbchecksum yes
 dbfilename dump.rdb
-dir {{ redis_data_dir }}
+# Внутри контейнера данные лежат по /var/lib/redis (примонтировано с хоста)
+dir /var/lib/redis
 
 #------------------------------------------------------------------------------
 # PERSISTENCE — AOF

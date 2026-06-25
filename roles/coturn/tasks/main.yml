@@ -1,72 +1,56 @@
 ---
-- name: Install coturn
-  apt:
-    name: coturn
-    state: present
-    update_cache: true
-
-- name: Create coturn directories
+- name: Create Coturn host directories
   file:
     path: "{{ item }}"
-    state: directory
-    owner: turnserver
-    group: turnserver
-    mode: "0750"
-  loop:
-    - "{{ coturn_config_dir }}"
-    - "{{ coturn_log_dir }}"
-    - "{{ coturn_data_dir }}"
-    - /var/run/coturn
-
-- name: Enable coturn service
-  lineinfile:
-    path: /etc/default/coturn
-    regexp: "^#?TURNSERVER_ENABLED="
-    line: "TURNSERVER_ENABLED=1"
-
-- name: Deploy turnserver.conf
-  template:
-    src: turnserver.conf.j2
-    dest: /etc/turnserver.conf
-    owner: turnserver
-    group: turnserver
-    mode: "0640"
-    backup: true
-  notify: Restart coturn
-
-- name: Deploy coturn systemd override
-  file:
-    path: /etc/systemd/system/coturn.service.d
     state: directory
     owner: root
     group: root
     mode: "0755"
+  loop:
+    - /etc/matrix/coturn
+    - /var/lib/matrix/coturn
+    - /var/log/matrix/coturn
+    - /etc/ssl/matrix
 
-- name: Coturn systemd hardening
-  copy:
-    dest: /etc/systemd/system/coturn.service.d/override.conf
-    content: |
-      [Service]
-      LimitNOFILE=65536
-      LimitNPROC=65536
-      ProtectSystem=strict
-      ReadWritePaths={{ coturn_log_dir }} {{ coturn_data_dir }} /var/run/coturn
+- name: Deploy turnserver.conf
+  template:
+    src: turnserver.conf.j2
+    dest: /etc/matrix/coturn/turnserver.conf
     owner: root
     group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart coturn
+    mode: "0640"
+    backup: true
+  notify: Restart coturn
 
-- name: Enable and start coturn
-  systemd:
-    name: coturn
-    enabled: true
-    state: started
-    daemon_reload: true
+- name: Create Docker Compose directory for Coturn
+  file:
+    path: "{{ docker_compose_dir }}/coturn"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
 
-# UFW — TURN/STUN порты открываются для ВНЕШНИХ клиентов (через NAT)
-- name: Allow STUN/TURN UDP and TCP
+- name: Deploy docker-compose.yml for Coturn
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ docker_compose_dir }}/coturn/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: Restart coturn
+
+- name: Pull Coturn image
+  command: docker compose -f {{ docker_compose_dir }}/coturn/docker-compose.yml pull
+  changed_when: false
+
+- name: Start Coturn container
+  command: docker compose -f {{ docker_compose_dir }}/coturn/docker-compose.yml up -d --remove-orphans
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+
+# UFW — TURN/STUN открыты для внешних клиентов (NAT → coturn01)
+- name: Allow STUN/TURN ports (UFW)
   community.general.ufw:
     rule: allow
     port: "{{ item.port }}"
@@ -75,12 +59,12 @@
   loop:
     - { port: "{{ coturn_port }}",     proto: tcp, comment: "TURN TCP" }
     - { port: "{{ coturn_port }}",     proto: udp, comment: "TURN UDP" }
-    - { port: "{{ coturn_tls_port }}", proto: tcp, comment: "TURNS TCP" }
-    - { port: "{{ coturn_tls_port }}", proto: udp, comment: "TURNS UDP" }
+    - { port: "{{ coturn_tls_port }}", proto: tcp, comment: "TURNS TLS TCP" }
+    - { port: "{{ coturn_tls_port }}", proto: udp, comment: "TURNS DTLS UDP" }
 
-- name: Allow TURN relay port range (UDP)
+- name: Allow TURN relay port range UDP (UFW)
   community.general.ufw:
     rule: allow
     port: "{{ coturn_min_port }}:{{ coturn_max_port }}"
     proto: udp
-    comment: "TURN relay UDP ports"
+    comment: "TURN relay UDP"

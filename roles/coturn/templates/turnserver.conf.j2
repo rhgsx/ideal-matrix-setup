@@ -20,7 +20,7 @@ min-port={{ coturn_min_port }}
 max-port={{ coturn_max_port }}
 
 #==============================================================================
-# TLS
+# TLS (пути внутри контейнера — /etc/ssl/matrix монтируется с хоста)
 #==============================================================================
 cert=/etc/ssl/matrix/fullchain.pem
 pkey=/etc/ssl/matrix/privkey.pem
@@ -73,20 +73,18 @@ no-stun
 # Количество relay-потоков (= кол-во ядер)
 relay-threads=4
 
-# Лог
-log-file={{ coturn_log_dir }}/turnserver.log
+# Логи (путь внутри контейнера — /var/log/coturn монтируется с хоста)
+log-file=/var/log/coturn/turnserver.log
 log-level={{ coturn_log_level }}
 simple-log
 
 # Verbose debugging (раскомментируйте при отладке)
 # verbose
 
-# Pidfile
-pidfile={{ coturn_pid_file }}
-
-# User
-proc-user=turnserver
-proc-group=turnserver
+# В Docker нет PID-файла и смены пользователя — контейнер управляет процессом
+# pidfile={{ coturn_pid_file }}
+# proc-user=turnserver
+# proc-group=turnserver
 
 #==============================================================================
 # MISC

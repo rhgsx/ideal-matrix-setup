@@ -4,10 +4,14 @@
 #------------------------------------------------------------------------------
 # CONNECTIONS
 #------------------------------------------------------------------------------
+# С network_mode: host контейнер видит все интерфейсы хоста напрямую
 listen_addresses          = '{{ postgres_ip }},127.0.0.1'
 port                      = {{ postgres_port }}
 max_connections           = {{ pg_max_connections }}
 superuser_reserved_connections = 5
+
+# pg_hba.conf монтируется отдельно (не в PGDATA)
+hba_file                  = '/tmp/pg_hba.conf'
 
 #------------------------------------------------------------------------------
 # MEMORY

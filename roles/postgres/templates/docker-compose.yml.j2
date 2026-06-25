@@ -1,0 +1,50 @@
+# Managed by Ansible — PostgreSQL 16 for Matrix
+name: matrix-postgres
+
+services:
+  postgres:
+    image: postgres:{{ postgres_version }}-alpine
+    container_name: matrix-postgres
+    restart: unless-stopped
+    network_mode: host
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "{{ vault_postgres_admin_password }}"
+      # Инициализация с C-локалью для Synapse
+      POSTGRES_INITDB_ARGS: "--lc-collate=C --lc-ctype=C --encoding=UTF8"
+      PGDATA: /var/lib/postgresql/data
+
+    volumes:
+      # Данные
+      - {{ postgres_data_dir }}:/var/lib/postgresql/data
+      # Конфиги (read-only, подключаются через command)
+      - {{ postgres_config_dir }}/postgresql.conf:/tmp/postgresql.conf:ro
+      - {{ postgres_config_dir }}/pg_hba.conf:/tmp/pg_hba.conf:ro
+      # Init-скрипт (запускается только при пустом data dir)
+      - {{ postgres_config_dir }}/init-matrix.sql:/docker-entrypoint-initdb.d/10-init-matrix.sql:ro
+      # Логи
+      - /var/log/matrix/postgres:/var/log/postgresql
+
+    # Переопределяем команду чтобы подключить кастомный postgresql.conf
+    command: postgres -c config_file=/tmp/postgresql.conf
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h {{ postgres_ip }} -p {{ postgres_port }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    shm_size: '512mb'    # Для shared_buffers > 256MB
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536

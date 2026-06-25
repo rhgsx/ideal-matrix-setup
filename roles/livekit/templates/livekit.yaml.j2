@@ -1,5 +1,6 @@
 # Managed by Ansible — LiveKit SFU configuration
 
+# network_mode: host → livekit видит реальные интерфейсы хоста
 port: {{ livekit_port }}
 bind_addresses:
   - "{{ livekit_ip }}"

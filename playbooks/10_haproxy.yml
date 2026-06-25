@@ -1,5 +1,5 @@
 ---
-- name: HAProxy reverse proxy with deep ACL
+- name: HAProxy reverse proxy with deep ACL (native)
   hosts: haproxy
   become: true
   roles:

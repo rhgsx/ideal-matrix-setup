@@ -1,5 +1,5 @@
 ---
-- name: Redis for Synapse worker replication
+- name: Redis for Synapse worker replication (Docker)
   hosts: redis_cluster
   become: true
   roles:

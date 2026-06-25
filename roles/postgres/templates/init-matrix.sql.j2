@@ -1,0 +1,58 @@
+-- Managed by Ansible — Matrix database initialization
+-- Выполняется один раз при первом запуске контейнера (пустой PGDATA)
+
+-- ============================================================
+--  Synapse
+-- ============================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{{ synapse_db_user }}') THEN
+    CREATE ROLE {{ synapse_db_user }}
+      WITH LOGIN
+           NOSUPERUSER
+           NOCREATEDB
+           NOCREATEROLE
+           PASSWORD '{{ vault_synapse_db_password }}';
+  END IF;
+END
+$$;
+
+SELECT 'CREATE DATABASE {{ synapse_db_name }}
+  OWNER     {{ synapse_db_user }}
+  ENCODING  UTF8
+  LC_COLLATE C
+  LC_CTYPE  C
+  TEMPLATE  template0'
+WHERE NOT EXISTS (
+  SELECT FROM pg_database WHERE datname = '{{ synapse_db_name }}'
+)\gexec
+
+GRANT ALL PRIVILEGES ON DATABASE {{ synapse_db_name }} TO {{ synapse_db_user }};
+
+-- ============================================================
+--  MAS (Matrix Authentication Service)
+-- ============================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{{ mas_db_user }}') THEN
+    CREATE ROLE {{ mas_db_user }}
+      WITH LOGIN
+           NOSUPERUSER
+           NOCREATEDB
+           NOCREATEROLE
+           PASSWORD '{{ vault_mas_db_password }}';
+  END IF;
+END
+$$;
+
+SELECT 'CREATE DATABASE {{ mas_db_name }}
+  OWNER     {{ mas_db_user }}
+  ENCODING  UTF8
+  LC_COLLATE C
+  LC_CTYPE  C
+  TEMPLATE  template0'
+WHERE NOT EXISTS (
+  SELECT FROM pg_database WHERE datname = '{{ mas_db_name }}'
+)\gexec
+
+GRANT ALL PRIVILEGES ON DATABASE {{ mas_db_name }} TO {{ mas_db_user }};

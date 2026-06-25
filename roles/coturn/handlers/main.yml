@@ -1,9 +1,3 @@
 ---
 - name: Restart coturn
-  systemd:
-    name: coturn
-    state: restarted
-
-- name: Reload systemd
-  systemd:
-    daemon_reload: true
+  command: docker compose -f {{ docker_compose_dir }}/coturn/docker-compose.yml restart coturn
