@@ -62,7 +62,6 @@ signing_key_path: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key
 stream_writers:
   events:
     - event_persister1
-    - event_persister2
   typing:
     - stream_writer_typing
   to_device:
@@ -71,17 +70,12 @@ stream_writers:
     - stream_writer_account_data
   receipts:
     - stream_writer_receipts
-  presence:
-    - stream_writer_presence
 
 run_background_tasks_on: "background_tasks"
-update_user_directory_from_worker: "user_dir"
-notify_appservices_from_worker: "pusher"
 
 send_federation: false
 federation_sender_instances:
   - federation_sender1
-  - federation_sender2
 
 #==============================================================================
 # MEDIA

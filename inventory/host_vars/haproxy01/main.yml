@@ -13,24 +13,19 @@ haproxy_timeout_tunnel:   "3600s"    # для WebSocket (/sync держит со
 haproxy_timeout_http_req: "10s"
 haproxy_timeout_queue:    "30s"
 
-# Synchrotron — 4 worker process на workers01
+# Synchrotron — 2 worker process на workers01
 synchrotron_workers:
   - { host: "{{ workers_ip }}", port: 8101 }
   - { host: "{{ workers_ip }}", port: 8102 }
-  - { host: "{{ workers_ip }}", port: 8103 }
-  - { host: "{{ workers_ip }}", port: 8104 }
 
-# Federation reader — 2 worker process
+# Federation reader — 1 worker process
 federation_reader_workers:
   - { host: "{{ workers_ip }}", port: 8111 }
-  - { host: "{{ workers_ip }}", port: 8112 }
 
-# Generic workers — 4 worker process (клиентские запросы)
+# Generic workers — 2 worker process (клиентские запросы)
 generic_workers:
   - { host: "{{ workers_ip }}", port: 8121 }
   - { host: "{{ workers_ip }}", port: 8122 }
-  - { host: "{{ workers_ip }}", port: 8123 }
-  - { host: "{{ workers_ip }}", port: 8124 }
 
 # Media worker — 1 process
 media_workers:

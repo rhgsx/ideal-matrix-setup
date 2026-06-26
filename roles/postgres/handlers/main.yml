@@ -1,8 +1,7 @@
 ---
 - name: Restart postgres
-  command: docker compose -f {{ docker_compose_dir }}/postgres/docker-compose.yml restart postgres
-  listen: Restart postgres
+  command: docker restart matrix-postgres
 
 - name: Reload postgres
-  command: docker exec matrix-postgres pg_ctl reload
+  command: docker kill --signal HUP matrix-postgres
   listen: Reload postgres

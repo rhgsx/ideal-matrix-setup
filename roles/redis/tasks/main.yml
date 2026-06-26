@@ -21,32 +21,31 @@
     backup: true
   notify: Restart redis
 
-- name: Create Docker Compose directory
-  file:
-    path: "{{ docker_compose_dir }}/redis"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for Redis
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/redis/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Restart redis
-
-- name: Pull Redis image
-  command: docker compose -f {{ docker_compose_dir }}/redis/docker-compose.yml pull
-  changed_when: false
-
 - name: Start Redis container
-  command: docker compose -f {{ docker_compose_dir }}/redis/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  community.docker.docker_container:
+    name: matrix-redis
+    image: "redis:{{ redis_version }}-alpine"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "/etc/matrix/redis/redis.conf:/etc/redis/redis.conf:ro"
+      - "{{ redis_data_dir }}:/var/lib/redis"
+      - "{{ redis_log_dir }}:/var/log/redis"
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    log_driver: json-file
+    log_options:
+      max-size: "50m"
+      max-file: "5"
+    ulimits:
+      - nofile:65536:65536
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "{{ redis_ip }}", "-p", "{{ redis_port }}", "-a", "{{ vault_redis_password }}", "PING"]
+      interval: "10s"
+      timeout: "5s"
+      retries: 5
+      start_period: "10s"
+    pull: "missing"
 
 - name: Wait for Redis to accept connections
   command: >

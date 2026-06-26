@@ -22,34 +22,29 @@
     backup: true
   notify: Restart coturn
 
-- name: Create Docker Compose directory for Coturn
-  file:
-    path: "{{ docker_compose_dir }}/coturn"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for Coturn
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/coturn/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Restart coturn
-
-- name: Pull Coturn image
-  command: docker compose -f {{ docker_compose_dir }}/coturn/docker-compose.yml pull
-  changed_when: false
-
 - name: Start Coturn container
-  command: docker compose -f {{ docker_compose_dir }}/coturn/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  community.docker.docker_container:
+    name: matrix-coturn
+    image: "coturn/coturn:latest"
+    state: started
+    restart_policy: unless-stopped
+    # host network ОБЯЗАТЕЛЕН для TURN relay — relay-ip привязывается к реальному интерфейсу
+    network_mode: host
+    volumes:
+      - "/etc/matrix/coturn:/etc/turnserver:ro"
+      - "/etc/ssl/matrix:/etc/ssl/matrix:ro"
+      - "/var/lib/matrix/coturn:/var/lib/coturn"
+      - "/var/log/matrix/coturn:/var/log/coturn"
+    command: ["-c", "/etc/turnserver/turnserver.conf"]
+    log_driver: json-file
+    log_options:
+      max-size: "50m"
+      max-file: "5"
+    ulimits:
+      - nofile:65536:65536
+    pull: "missing"
 
-# UFW — TURN/STUN открыты для внешних клиентов (NAT → coturn01)
+# UFW — STUN/TURN открыты для внешних клиентов (NAT → coturn01)
 - name: Allow STUN/TURN ports (UFW)
   community.general.ufw:
     rule: allow

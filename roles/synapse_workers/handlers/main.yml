@@ -1,3 +1,7 @@
 ---
 - name: Restart all workers
-  command: docker compose -f {{ docker_compose_dir }}/workers/docker-compose.yml restart
+  command: docker restart "synapse-{{ item.name }}"
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  listen: Restart all workers

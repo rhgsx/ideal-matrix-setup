@@ -78,17 +78,10 @@ redis:
 # Фоновые задачи — выделенный worker
 run_background_tasks_on: "background_tasks"
 
-# Обновление каталога пользователей — выделенный worker
-update_user_directory_from_worker: "user_dir"
-
-# Push-уведомления — выделенный worker
-notify_appservices_from_worker: "pusher"
-
 # Stream writers — каждый поток пишет только один worker
 stream_writers:
   events:
     - event_persister1
-    - event_persister2
   typing:
     - stream_writer_typing
   to_device:
@@ -97,15 +90,12 @@ stream_writers:
     - stream_writer_account_data
   receipts:
     - stream_writer_receipts
-  presence:
-    - stream_writer_presence
 
 # Исходящая федерация — worker federation_sender
 send_federation: false   # главный процесс НЕ отправляет федерацию
 
 federation_sender_instances:
   - federation_sender1
-  - federation_sender2
 
 #==============================================================================
 # TLS (отключён — HAProxy терминирует)

@@ -1,3 +1,3 @@
 ---
 - name: Restart mas
-  command: docker compose -f {{ docker_compose_dir }}/mas/docker-compose.yml restart mas
+  command: docker restart matrix-mas

@@ -2,17 +2,18 @@
 
 ## Сервисы и где они запущены
 
-| Хост        | Сервис              | Тип           | Compose dir                      |
-|-------------|---------------------|---------------|----------------------------------|
-| haproxy01   | HAProxy             | native        | —                                |
-| synapse01   | Synapse main        | Docker        | /opt/matrix/compose/synapse/     |
-| postgres01  | PostgreSQL 16       | Docker        | /opt/matrix/compose/postgres/    |
-| redis01     | Redis 7.2           | Docker        | /opt/matrix/compose/redis/       |
-| livekit01   | LiveKit + lk-jwt    | Docker        | /opt/matrix/compose/livekit/     |
-| coturn01    | Coturn              | Docker        | /opt/matrix/compose/coturn/      |
-| workers01   | 17 Synapse workers  | Docker        | /opt/matrix/compose/workers/     |
-| workers01   | MAS                 | Docker        | /opt/matrix/compose/mas/         |
-| element01   | Element Web (nginx) | Docker        | /opt/matrix/compose/element/     |
+| Хост        | Сервис              | Тип           | Контейнер           |
+|-------------|---------------------|---------------|---------------------|
+| haproxy01   | HAProxy             | native        | —                   |
+| synapse01   | Synapse main        | Docker        | matrix-synapse      |
+| postgres01  | PostgreSQL 16       | Docker        | matrix-postgres     |
+| redis01     | Redis 7.2           | Docker        | matrix-redis        |
+| livekit01   | LiveKit             | Docker        | matrix-livekit      |
+| livekit01   | lk-jwt              | Docker        | matrix-lk-jwt       |
+| coturn01    | Coturn              | Docker        | matrix-coturn       |
+| workers01   | Synapse workers     | Docker        | synapse-<name>      |
+| workers01   | MAS                 | Docker        | matrix-mas          |
+| element01   | Element Web (nginx) | Docker        | matrix-element      |
 
 ## Первый деплой
 
@@ -84,13 +85,16 @@ docker logs matrix-mas -f
 docker restart synapse-synchrotron1
 
 # Рестарт всех воркеров
-docker compose -f /opt/matrix/compose/workers/docker-compose.yml restart
+for c in $(docker ps --filter "name=synapse-" -q); do docker restart "$c"; done
 
 # Рестарт Synapse main
-docker compose -f /opt/matrix/compose/synapse/docker-compose.yml restart
+docker restart matrix-synapse
 
 # Статус всех воркеров
-docker compose -f /opt/matrix/compose/workers/docker-compose.yml ps
+docker ps --filter "name=synapse-"
+
+# Статус всех Matrix контейнеров
+docker ps --filter "name=matrix-"
 ```
 
 ## Обновление Synapse
@@ -105,12 +109,10 @@ ansible-playbook playbooks/07_synapse.yml
 # 3. Применить на воркерах
 ansible-playbook playbooks/08_workers.yml
 
-# Или вручную:
-docker compose -f /opt/matrix/compose/synapse/docker-compose.yml pull
-docker compose -f /opt/matrix/compose/synapse/docker-compose.yml up -d
-
-docker compose -f /opt/matrix/compose/workers/docker-compose.yml pull
-docker compose -f /opt/matrix/compose/workers/docker-compose.yml up -d
+# Или вручную (новый образ уже скачан Ansible через pull: missing):
+docker pull ghcr.io/element-hq/synapse:v1.122.0
+docker restart matrix-synapse
+for c in $(docker ps --filter "name=synapse-" -q); do docker restart "$c"; done
 ```
 
 ## Создание первого администратора
@@ -158,7 +160,8 @@ curl "https://federationtester.matrix.org/api/report?server_name=example.com" | 
 ```bash
 # Docker сохраняет предыдущий образ под тегом <none>
 # Откат:
-docker tag ghcr.io/element-hq/synapse:v1.121.0 ghcr.io/element-hq/synapse:current
+docker tag ghcr.io/element-hq/synapse:v1.121.0 ghcr.io/element-hq/synapse:v1.122.0-bad
 docker tag ghcr.io/element-hq/synapse:v1.120.0 ghcr.io/element-hq/synapse:v1.121.0
-docker compose -f /opt/matrix/compose/synapse/docker-compose.yml up -d
+docker restart matrix-synapse
+for c in $(docker ps --filter "name=synapse-" -q); do docker restart "$c"; done
 ```

@@ -1,7 +1,7 @@
 ---
 - name: Reload element
-  command: docker compose -f {{ docker_compose_dir }}/element/docker-compose.yml exec element nginx -s reload
+  command: docker exec matrix-element nginx -s reload
   listen: Reload element
 
 - name: Restart element
-  command: docker compose -f {{ docker_compose_dir }}/element/docker-compose.yml restart element
+  command: docker restart matrix-element

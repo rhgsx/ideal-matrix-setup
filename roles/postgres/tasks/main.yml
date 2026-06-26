@@ -39,32 +39,39 @@
     group: 999
     mode: "0640"
 
-- name: Create Docker Compose directory
-  file:
-    path: "{{ docker_compose_dir }}/postgres"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for postgres
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/postgres/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Restart postgres
-
-- name: Pull PostgreSQL image
-  command: docker compose -f {{ docker_compose_dir }}/postgres/docker-compose.yml pull
-  changed_when: false
-
 - name: Start PostgreSQL container
-  command: docker compose -f {{ docker_compose_dir }}/postgres/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  community.docker.docker_container:
+    name: matrix-postgres
+    image: "postgres:{{ postgres_version }}-alpine"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "{{ vault_postgres_admin_password }}"
+      POSTGRES_INITDB_ARGS: "--lc-collate=C --lc-ctype=C --encoding=UTF8"
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - "{{ postgres_data_dir }}:/var/lib/postgresql/data"
+      - "{{ postgres_config_dir }}/postgresql.conf:/tmp/postgresql.conf:ro"
+      - "{{ postgres_config_dir }}/pg_hba.conf:/tmp/pg_hba.conf:ro"
+      - "{{ postgres_config_dir }}/init-matrix.sql:/docker-entrypoint-initdb.d/10-init-matrix.sql:ro"
+      - "/var/log/matrix/postgres:/var/log/postgresql"
+    command: ["postgres", "-c", "config_file=/tmp/postgresql.conf"]
+    shm_size: "512m"
+    log_driver: json-file
+    log_options:
+      max-size: "100m"
+      max-file: "5"
+    ulimits:
+      - nofile:65536:65536
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h {{ postgres_ip }} -p {{ postgres_port }}"]
+      interval: "10s"
+      timeout: "5s"
+      retries: 5
+      start_period: "30s"
+    pull: "missing"
 
 - name: Wait for PostgreSQL to accept connections
   command: >

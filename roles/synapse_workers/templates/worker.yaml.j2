@@ -3,9 +3,8 @@ worker_app: "{{ item.app }}"
 worker_name: "{{ item.worker_name }}"
 
 worker_listeners:
-{% for listener in item.worker_listeners %}
   - type: http
-    port: {{ listener.port }}
+    port: {{ item.port }}
     bind_addresses:
       - "{{ workers_ip }}"
       - "127.0.0.1"
@@ -13,11 +12,10 @@ worker_listeners:
     x_forwarded: true
     resources:
       - names:
-{% for resource in listener.resources %}
+{% for resource in item.listener_resources %}
           - {{ resource }}
 {% endfor %}
         compress: false
-{% endfor %}
   - type: metrics
     port: {{ item.metrics_port }}
     bind_addresses:

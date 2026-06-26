@@ -30,32 +30,28 @@
     backup: true
   notify: Reload element
 
-- name: Create Docker Compose directory for Element
-  file:
-    path: "{{ docker_compose_dir }}/element"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for Element Web
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/element/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Reload element
-
-- name: Pull Element Web image
-  command: docker compose -f {{ docker_compose_dir }}/element/docker-compose.yml pull
-  changed_when: false
-
 - name: Start Element Web container
-  command: docker compose -f {{ docker_compose_dir }}/element/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  community.docker.docker_container:
+    name: matrix-element
+    image: "vectorim/element-web:v{{ element_version }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "/etc/matrix/element/config.json:/app/config.json:ro"
+      - "/etc/matrix/element/nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+      - "/var/log/matrix/element:/var/log/nginx"
+    log_driver: json-file
+    log_options:
+      max-size: "50m"
+      max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://{{ element_ip }}:{{ element_nginx_port }}/ || exit 1"]
+      interval: "30s"
+      timeout: "5s"
+      retries: 3
+      start_period: "10s"
+    pull: "missing"
 
 - name: Allow Element nginx from HAProxy (UFW)
   community.general.ufw:

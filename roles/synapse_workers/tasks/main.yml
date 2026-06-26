@@ -45,9 +45,7 @@
   loop_control:
     label: "{{ item.name }}"
 
-- name: Copy signing key from synapse01 to workers01
-  # Signing key должен быть идентичен на обоих хостах
-  # Выполняется только если ключ ещё не скопирован
+- name: Check signing key presence
   stat:
     path: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
   register: signing_key_stat
@@ -60,32 +58,50 @@
           {{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key
   when: not signing_key_stat.stat.exists
 
-- name: Create Docker Compose directory for workers
-  file:
-    path: "{{ docker_compose_dir }}/workers"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for all workers
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/workers/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Restart all workers
-
 - name: Pull Synapse image for workers
-  command: docker compose -f {{ docker_compose_dir }}/workers/docker-compose.yml pull
-  changed_when: false
+  community.docker.docker_image:
+    name: "ghcr.io/element-hq/synapse"
+    tag: "v{{ synapse_version }}"
+    source: pull
+    force_source: false
 
-- name: Start all worker containers
-  command: docker compose -f {{ docker_compose_dir }}/workers/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+- name: Start worker containers
+  community.docker.docker_container:
+    name: "synapse-{{ item.name }}"
+    image: "ghcr.io/element-hq/synapse:v{{ synapse_version }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    user: "{{ matrix_uid }}:{{ matrix_gid }}"
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - "{{ synapse_config_dir }}:{{ synapse_config_dir }}:ro"
+      - "{{ workers_config_dir }}:{{ workers_config_dir }}:ro"
+      - "{{ synapse_data_dir }}:{{ synapse_data_dir }}"
+      - "{{ workers_log_dir }}:{{ workers_log_dir }}"
+    command:
+      - python3
+      - -m
+      - "{{ item.app }}"
+      - "--config-path={{ synapse_config_dir }}/homeserver.yaml"
+      - "--config-path={{ workers_config_dir }}/{{ item.name }}.yaml"
+    log_driver: json-file
+    log_options:
+      max-size: "50m"
+      max-file: "5"
+    ulimits:
+      - nofile:65536:65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://{{ workers_ip }}:{{ item.port }}/health || exit 1"]
+      interval: "30s"
+      timeout: "10s"
+      retries: 3
+      start_period: "30s"
+    pull: "never"   # image already pulled in previous task
+  loop: "{{ synapse_workers }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Wait for synchrotron workers to be ready
   uri:
@@ -99,7 +115,7 @@
   loop_control:
     label: "{{ item.name }}"
 
-# UFW — HAProxy → workers с HTTP/federation listener
+# UFW — HAProxy → workers с HTTP listener (client или federation)
 - name: Allow worker HTTP ports from HAProxy
   community.general.ufw:
     rule: allow
@@ -110,10 +126,7 @@
   loop: "{{ synapse_workers }}"
   loop_control:
     label: "{{ item.name }}"
-  when: >
-    item.worker_listeners | selectattr('resources', 'contains', 'client') | list | length > 0
-    or
-    item.worker_listeners | selectattr('resources', 'contains', 'federation') | list | length > 0
+  when: "'client' in item.listener_resources or 'federation' in item.listener_resources or 'media' in item.listener_resources"
 
 # UFW — synapse01 → replication workers
 - name: Allow replication ports from Synapse main
@@ -126,5 +139,4 @@
   loop: "{{ synapse_workers }}"
   loop_control:
     label: "{{ item.name }}"
-  when: >
-    item.worker_listeners | selectattr('resources', 'contains', 'replication') | list | length > 0
+  when: "'replication' in item.listener_resources"

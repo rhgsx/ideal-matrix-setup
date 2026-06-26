@@ -21,44 +21,52 @@
     backup: true
   notify: Restart livekit
 
-- name: Deploy lk-jwt env file
-  template:
-    src: lk-jwt.env.j2
-    dest: /etc/matrix/livekit/lk-jwt.env
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
+- name: Start LiveKit container
+  community.docker.docker_container:
+    name: matrix-livekit
+    image: "livekit/livekit-server:v{{ livekit_version }}"
+    state: started
+    restart_policy: unless-stopped
+    # host network ОБЯЗАТЕЛЕН для WebRTC ICE — контейнер видит реальные интерфейсы хоста
+    network_mode: host
+    volumes:
+      - "/etc/matrix/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro"
+      - "/var/lib/matrix/livekit:/var/lib/livekit"
+      - "/var/log/matrix/livekit:/var/log/livekit"
+    command: ["--config", "/etc/livekit/livekit.yaml"]
+    log_driver: json-file
+    log_options:
+      max-size: "100m"
+      max-file: "5"
+    ulimits:
+      - nofile:65536:65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://{{ livekit_ip }}:{{ livekit_port }}/metrics || exit 1"]
+      interval: "30s"
+      timeout: "10s"
+      retries: 3
+      start_period: "15s"
+    pull: "missing"
+
+- name: Start lk-jwt container
+  community.docker.docker_container:
+    name: matrix-lk-jwt
+    image: "ghcr.io/element-hq/lk-jwt-service:latest"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      LK_JWT_PORT: "{{ livekit_jwt_port }}"
+      LK_JWT_LIVEKIT_URL: "ws://{{ livekit_ip }}:{{ livekit_port }}"
+      LIVEKIT_API_KEY: "{{ vault_livekit_api_key }}"
+      LIVEKIT_API_SECRET: "{{ vault_livekit_api_secret }}"
+    log_driver: json-file
+    log_options:
+      max-size: "50m"
+      max-file: "5"
+    pull: "missing"
   notify: Restart lk-jwt
-
-- name: Create Docker Compose directory for LiveKit
-  file:
-    path: "{{ docker_compose_dir }}/livekit"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for LiveKit
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/livekit/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify:
-    - Restart livekit
-    - Restart lk-jwt
-
-- name: Pull LiveKit images
-  command: docker compose -f {{ docker_compose_dir }}/livekit/docker-compose.yml pull
-  changed_when: false
-
-- name: Start LiveKit containers
-  command: docker compose -f {{ docker_compose_dir }}/livekit/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  no_log: true
 
 - name: Allow LiveKit WebSocket from HAProxy (UFW)
   community.general.ufw:

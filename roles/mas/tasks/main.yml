@@ -21,28 +21,6 @@
     backup: true
   notify: Restart mas
 
-- name: Create Docker Compose directory for MAS
-  file:
-    path: "{{ docker_compose_dir }}/mas"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Deploy docker-compose.yml for MAS
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/mas/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Restart mas
-
-- name: Pull MAS image
-  command: docker compose -f {{ docker_compose_dir }}/mas/docker-compose.yml pull
-  changed_when: false
-
 - name: Run MAS database migrations
   command: >
     docker run --rm
@@ -56,9 +34,29 @@
   changed_when: "'Applied' in mas_migrate.stdout"
 
 - name: Start MAS container
-  command: docker compose -f {{ docker_compose_dir }}/mas/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  community.docker.docker_container:
+    name: matrix-mas
+    image: "ghcr.io/element-hq/matrix-authentication-service:{{ mas_version }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    user: "{{ matrix_uid }}:{{ matrix_gid }}"
+    volumes:
+      - "/etc/matrix/mas:/etc/mas:ro"
+      - "/var/lib/matrix/mas:/var/lib/mas"
+      - "/var/log/matrix/mas:/var/log/mas"
+    command: ["server", "--config", "/etc/mas/config.yaml"]
+    log_driver: json-file
+    log_options:
+      max-size: "50m"
+      max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://{{ workers_ip }}:{{ mas_port }}/_health || exit 1"]
+      interval: "30s"
+      timeout: "10s"
+      retries: 3
+      start_period: "30s"
+    pull: "missing"
 
 - name: Wait for MAS to become healthy
   uri:

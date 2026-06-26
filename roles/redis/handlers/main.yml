@@ -1,3 +1,3 @@
 ---
 - name: Restart redis
-  command: docker compose -f {{ docker_compose_dir }}/redis/docker-compose.yml restart redis
+  command: docker restart matrix-redis

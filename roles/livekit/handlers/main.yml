@@ -1,6 +1,6 @@
 ---
 - name: Restart livekit
-  command: docker compose -f {{ docker_compose_dir }}/livekit/docker-compose.yml restart livekit
+  command: docker restart matrix-livekit
 
 - name: Restart lk-jwt
-  command: docker compose -f {{ docker_compose_dir }}/livekit/docker-compose.yml restart lk-jwt
+  command: docker restart matrix-lk-jwt

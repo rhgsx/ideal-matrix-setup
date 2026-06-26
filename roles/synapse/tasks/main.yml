@@ -13,14 +13,6 @@
     - "{{ synapse_data_dir }}/uploads"
     - "{{ synapse_log_dir }}"
 
-- name: Create Docker Compose directory
-  file:
-    path: "{{ docker_compose_dir }}/synapse"
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
-
 - name: Deploy homeserver.yaml
   template:
     src: homeserver.yaml.j2
@@ -40,20 +32,6 @@
     mode: "0640"
   notify: Restart synapse
 
-- name: Deploy docker-compose.yml for Synapse
-  template:
-    src: docker-compose.yml.j2
-    dest: "{{ docker_compose_dir }}/synapse/docker-compose.yml"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  notify: Restart synapse
-
-- name: Pull Synapse image
-  command: docker compose -f {{ docker_compose_dir }}/synapse/docker-compose.yml pull
-  changed_when: false
-
 - name: Generate Synapse signing key (if absent)
   command: >
     docker run --rm
@@ -66,9 +44,34 @@
     creates: "{{ synapse_config_dir }}/{{ matrix_server_name }}.signing.key"
 
 - name: Start Synapse container
-  command: docker compose -f {{ docker_compose_dir }}/synapse/docker-compose.yml up -d --remove-orphans
-  register: compose_up
-  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  community.docker.docker_container:
+    name: matrix-synapse
+    image: "ghcr.io/element-hq/synapse:v{{ synapse_version }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    user: "{{ matrix_uid }}:{{ matrix_gid }}"
+    env:
+      SYNAPSE_CONFIG_PATH: "{{ synapse_config_dir }}/homeserver.yaml"
+      SYNAPSE_SERVER_NAME: "{{ matrix_server_name }}"
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - "{{ synapse_config_dir }}:{{ synapse_config_dir }}:ro"
+      - "{{ synapse_data_dir }}:{{ synapse_data_dir }}"
+      - "{{ synapse_log_dir }}:{{ synapse_log_dir }}"
+    log_driver: json-file
+    log_options:
+      max-size: "100m"
+      max-file: "5"
+    ulimits:
+      - nofile:65536:65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://{{ synapse_ip }}:{{ synapse_http_port }}/health || exit 1"]
+      interval: "30s"
+      timeout: "10s"
+      retries: 3
+      start_period: "60s"
+    pull: "missing"
 
 - name: Wait for Synapse to become healthy
   uri:
